@@ -1,6 +1,7 @@
 # 依赖与构建产物
 node_modules/
 dist/
+.vite/
 
 # 版权排除：动作库生成物（由 tools/fetch_openGym.py 在本机生成，不入仓库）
 app/public/exercises/
