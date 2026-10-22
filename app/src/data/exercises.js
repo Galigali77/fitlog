@@ -1,7 +1,6 @@
-import type { Exercise, Routine } from '@/types';
-
 // 原型样例动作库（正式版将整体替换为 openGym catalogue/ 数据 + GIF）
-export const EXERCISES: Exercise[] = [
+/** @type {import('@/types').Exercise[]} */
+export const EXERCISES = [
   { id: 'squat', nameZh: '杠铃深蹲', nameEn: 'Barbell Squat', muscles: ['股四头肌', '臀部'], equipment: '杠铃', type: '力量', desc: '双脚与肩同宽，核心收紧，髋膝联动下蹲至大腿平行地面，脚跟蹬地起身。' },
   { id: 'bench', nameZh: '平板卧推', nameEn: 'Bench Press', muscles: ['胸大肌', '肱三头肌'], equipment: '杠铃', type: '力量', desc: '肩胛后缩下沉贴凳，握距略宽于肩，下放至触胸后推起，手腕保持中立。' },
   { id: 'deadlift', nameZh: '硬拉', nameEn: 'Deadlift', muscles: ['下背部', '臀部', '腘绳肌'], equipment: '杠铃', type: '力量', desc: '背部平直，杠铃贴小腿上下，伸髋发力锁定，避免弓腰。' },
@@ -24,7 +23,8 @@ export const MUSCLES = ['胸大肌', '背阔肌', '三角肌', '肱二头肌', '
 
 export const EQUIPMENTS = ['全部', '徒手', '哑铃', '杠铃', '单杠'];
 
-export const ROUTINES: Routine[] = [
+/** @type {import('@/types').Routine[]} */
+export const ROUTINES = [
   {
     id: 'r-push', name: '推日 Push（A）', mode: 'rotation',
     items: [
@@ -54,7 +54,8 @@ export const ROUTINES: Routine[] = [
 ];
 
 // 内置模板
-export const TEMPLATES: Routine[] = [
+/** @type {import('@/types').Routine[]} */
+export const TEMPLATES = [
   { id: 't-5x5', name: '5×5 力量增肌', mode: 'weekly', items: [
     { exerciseId: 'squat', targetSets: 5, targetReps: '5' },
     { exerciseId: 'bench', targetSets: 5, targetReps: '5' },
@@ -69,5 +70,6 @@ export const TEMPLATES: Routine[] = [
   ]},
 ];
 
-export const exerciseById = (id: string): Exercise =>
+/** @param {string} id @returns {import('@/types').Exercise} */
+export const exerciseById = (id) =>
   EXERCISES.find((e) => e.id === id) ?? EXERCISES[0];

@@ -1,14 +1,10 @@
 import { useStore } from '@/store';
 import { ROUTINES, exerciseById } from '@/data/exercises';
 import { todayStr } from '@/data/history';
-import type { Routine } from '@/types';
 import { Dumbbell, Flame, TrendingUp, ChevronRight } from 'lucide-react';
 
-interface Props {
-  onStart: (routine: Routine) => void;
-}
-
-export default function TodayPage({ onStart }: Props) {
+/** @param {{ onStart: (routine: import('@/types').Routine) => void }} props */
+export default function TodayPage({ onStart }) {
   const { workouts } = useStore();
   // 轮换模式：找到下一次该练的轮换位置（原型按已完成次数取模）
   const doneCount = workouts.filter((w) => w.date === todayStr).length;

@@ -2,11 +2,10 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '@/store';
 import { exerciseById } from '@/data/exercises';
 import { todayStr } from '@/data/history';
-import type { Routine, SetData, Workout, WorkoutExercise } from '@/types';
 import { ArrowLeft, Check, Plus, Timer, Trophy, X } from 'lucide-react';
 
 // 每组的历史最佳容量（演示 PR 检测用）
-const HISTORICAL_BEST: Record<string, number> = {
+const HISTORICAL_BEST = {
   squat: 80 * 8, bench: 50 * 10, deadlift: 100 * 6, ohp: 35 * 8, row: 55 * 10,
   'db-press': 22.5 * 10, 'db-fly': 10 * 12, 'db-curl': 12.5 * 10, 'db-lunge': 20 * 12,
   'db-shoulder': 7.5 * 15, pullup: 70 * 10, pushup: 0, plank: 0, calf: 0,
@@ -14,7 +13,7 @@ const HISTORICAL_BEST: Record<string, number> = {
 };
 
 // 上次数据预填
-const LAST_TIME: Record<string, SetData> = {
+const LAST_TIME = {
   squat: { weight: 77.5, reps: 8 },
   bench: { weight: 50, reps: 10 },
   ohp: { weight: 35, reps: 8 },
@@ -22,16 +21,10 @@ const LAST_TIME: Record<string, SetData> = {
   'db-curl': { weight: 12.5, reps: 10 },
 };
 
-interface Props {
-  routine: Routine;
-  onFinish: () => void;
-}
-
-const REST_DEFAULT = 90;
-
-export default function SessionPage({ routine, onFinish }: Props) {
+/** @param {{ routine: import('@/types').Routine, onFinish: () => void }} props */
+export default function SessionPage({ routine, onFinish }) {
   const { addWorkout } = useStore();
-  const [exercises, setExercises] = useState<WorkoutExercise[]>(() =>
+  const [exercises, setExercises] = useState(() =>
     routine.items.map((it) => ({
       exerciseId: it.exerciseId,
       nameZh: exerciseById(it.exerciseId).nameZh,
@@ -41,9 +34,9 @@ export default function SessionPage({ routine, onFinish }: Props) {
       })),
     }))
   );
-  const [prs, setPrs] = useState<string[]>([]);
+  const [prs, setPrs] = useState([]);
   const [restLeft, setRestLeft] = useState(0);
-  const timerRef = useRef<number | null>(null);
+  const timerRef = useRef(null);
 
   useEffect(() => {
     if (restLeft <= 0) return;
@@ -53,7 +46,7 @@ export default function SessionPage({ routine, onFinish }: Props) {
     };
   }, [restLeft]);
 
-  const updateSet = (ei: number, si: number, patch: Partial<SetData>) => {
+  const updateSet = (ei, si, patch) => {
     setExercises((prev) =>
       prev.map((ex, i) =>
         i !== ei ? ex : { ...ex, sets: ex.sets.map((s, j) => (j !== si ? s : { ...s, ...patch })) }
@@ -61,7 +54,7 @@ export default function SessionPage({ routine, onFinish }: Props) {
     );
   };
 
-  const completeSet = (ei: number, si: number) => {
+  const completeSet = (ei, si) => {
     const ex = exercises[ei];
     const set = ex.sets[si];
     updateSet(ei, si, { done: true });
@@ -70,11 +63,10 @@ export default function SessionPage({ routine, onFinish }: Props) {
     if (set.weight * set.reps > best && !prs.includes(ex.nameZh)) {
       setPrs((prev) => [...prev, ex.nameZh]);
     }
-    // 自动追加下一组（若已是最后一组且未完成标记）
-    setRestLeft(REST_DEFAULT);
+    setRestLeft(90); // 组间休息计时器（默认 90s）
   };
 
-  const addSet = (ei: number) => {
+  const addSet = (ei) => {
     setExercises((prev) =>
       prev.map((ex, i) =>
         i !== ei ? ex : { ...ex, sets: [...ex.sets, { weight: ex.sets.at(-1)?.weight ?? 0, reps: ex.sets.at(-1)?.reps ?? 0, done: false }] }
@@ -89,14 +81,13 @@ export default function SessionPage({ routine, onFinish }: Props) {
   const doneSets = exercises.reduce((n, ex) => n + ex.sets.filter((s) => s.done).length, 0);
 
   const finish = () => {
-    const w: Workout = {
+    addWorkout({
       id: `w-${Date.now()}`,
       date: todayStr,
       title: routine.name,
       routineName: routine.name,
       exercises: exercises.filter((e) => e.sets.some((s) => s.done)),
-    };
-    addWorkout(w);
+    });
     onFinish();
   };
 

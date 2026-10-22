@@ -2,15 +2,14 @@ import { useMemo, useRef, useState } from 'react';
 import { useStore } from '@/store';
 import { BENCH_HISTORY, EXERCISE_MUSCLE_MAP, todayStr } from '@/data/history';
 import { MUSCLES } from '@/data/exercises';
-import type { BodyPhoto } from '@/types';
 import { Camera, Lightbulb, User, BellRing } from 'lucide-react';
 
-// 最近 15 周训练热力图
-function Heatmap({ workouts }: { workouts: { date: string }[] }) {
-  const counts = new Map<string, number>();
+/** @param {{ workouts: { date: string }[] }} props */
+function Heatmap({ workouts }) {
+  const counts = new Map();
   workouts.forEach((w) => counts.set(w.date, (counts.get(w.date) ?? 0) + 1));
   const today = new Date();
-  const days: { date: string; count: number; future: boolean }[] = [];
+  const days = [];
   const start = new Date(today);
   start.setDate(today.getDate() - 104 - ((today.getDay() + 6) % 7)); // 对齐到周一
   for (let i = 0; i < 105; i++) {
@@ -19,7 +18,7 @@ function Heatmap({ workouts }: { workouts: { date: string }[] }) {
     const key = d.toISOString().slice(0, 10);
     days.push({ date: key, count: counts.get(key) ?? 0, future: d > today });
   }
-  const level = (c: number) => (c === 0 ? 'bg-purple-950/60' : c === 1 ? 'bg-purple-800/80' : c === 2 ? 'bg-purple-600' : 'bg-purple-400');
+  const level = (c) => (c === 0 ? 'bg-purple-950/60' : c === 1 ? 'bg-purple-800/80' : c === 2 ? 'bg-purple-600' : 'bg-purple-400');
   return (
     <div className="grid grid-rows-7 grid-flow-col gap-[3px] overflow-x-auto no-scrollbar py-1">
       {days.map((d) => (
@@ -34,7 +33,7 @@ function Heatmap({ workouts }: { workouts: { date: string }[] }) {
 }
 
 // 身材占位图（未上传照片时的示意）
-function PhotoPlaceholder({ label }: { label: string }) {
+function PhotoPlaceholder({ label }) {
   return (
     <div className="gif-placeholder rounded-2xl aspect-[3/4] flex flex-col items-center justify-center border border-purple-500/25">
       <User size={26} className="text-purple-300/80 relative z-10" />
@@ -43,14 +42,30 @@ function PhotoPlaceholder({ label }: { label: string }) {
   );
 }
 
+// 上传位按钮（有预览则显示预览图）
+/** @param {{ label: string, value: string|null, onPick: () => void }} props */
+function PickBtn({ label, value, onPick }) {
+  return value ? (
+    <button onClick={onPick} className="rounded-2xl overflow-hidden border border-purple-400/40 active:scale-[0.98] transition">
+      <img src={value} alt={label} className="w-full aspect-[3/4] object-cover" />
+      <p className="text-[10px] text-purple-300 py-1 bg-background/80">重新选择{label}</p>
+    </button>
+  ) : (
+    <button onClick={onPick} className="rounded-2xl aspect-[3/4] border-2 border-dashed border-purple-500/40 flex flex-col items-center justify-center gap-1.5 text-purple-300 active:scale-[0.98] transition">
+      <Camera size={20} />
+      <span className="text-xs">上传{label}</span>
+    </button>
+  );
+}
+
 // 身材记录：每 15 天一组正面 + 背面照片
 function BodyRecord() {
   const { bodyPhotos, addBodyPhotos } = useStore();
-  const [front, setFront] = useState<string | null>(null);
-  const [back, setBack] = useState<string | null>(null);
+  const [front, setFront] = useState(null);
+  const [back, setBack] = useState(null);
   const [error, setError] = useState('');
-  const frontRef = useRef<HTMLInputElement>(null);
-  const backRef = useRef<HTMLInputElement>(null);
+  const frontRef = useRef(null);
+  const backRef = useRef(null);
 
   const sorted = useMemo(() => [...bodyPhotos].sort((a, b) => b.date.localeCompare(a.date)), [bodyPhotos]);
   const lastDate = sorted[0]?.date;
@@ -60,7 +75,8 @@ function BodyRecord() {
     return Math.max(0, 15 - diff);
   }, [lastDate]);
 
-  const readFile = (file: File | undefined, setter: (s: string) => void) => {
+  /** @param {File|undefined} file @param {(s: string) => void} setter */
+  const readFile = (file, setter) => {
     if (!file) return;
     const reader = new FileReader();
     reader.onload = () => setter(String(reader.result));
@@ -77,19 +93,6 @@ function BodyRecord() {
     setBack(null);
     setError('');
   };
-
-  const PickBtn = ({ label, value, onPick }: { label: string; value: string | null; onPick: () => void }) =>
-    value ? (
-      <button onClick={onPick} className="rounded-2xl overflow-hidden border border-purple-400/40 active:scale-[0.98] transition">
-        <img src={value} alt={label} className="w-full aspect-[3/4] object-cover" />
-        <p className="text-[10px] text-purple-300 py-1 bg-background/80">重新选择{label}</p>
-      </button>
-    ) : (
-      <button onClick={onPick} className="rounded-2xl aspect-[3/4] border-2 border-dashed border-purple-500/40 flex flex-col items-center justify-center gap-1.5 text-purple-300 active:scale-[0.98] transition">
-        <Camera size={20} />
-        <span className="text-xs">上传{label}</span>
-      </button>
-    );
 
   return (
     <section className="rounded-3xl p-4 bg-card/80 border border-border/60 glow-card">
@@ -123,7 +126,7 @@ function BodyRecord() {
       {/* 历史时间线 */}
       {sorted.length > 0 && (
         <div className="mt-4 space-y-3">
-          {sorted.map((p: BodyPhoto) => (
+          {sorted.map((p) => (
             <div key={p.id} className="flex gap-3">
               <div className="w-14 shrink-0 text-center">
                 <p className="text-[11px] font-mono text-purple-300">{p.date.slice(5)}</p>
@@ -148,7 +151,7 @@ export default function ReviewPage() {
   const thirtyDaysAgo = new Date();
   thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
   const since = thirtyDaysAgo.toISOString().slice(0, 10);
-  const coverage = new Map<string, number>();
+  const coverage = new Map();
   workouts.filter((w) => w.date >= since).forEach((w) => {
     (EXERCISE_MUSCLE_MAP[w.title] ?? []).forEach((m) => coverage.set(m, (coverage.get(m) ?? 0) + 1));
   });

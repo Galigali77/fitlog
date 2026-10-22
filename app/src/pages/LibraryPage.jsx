@@ -5,9 +5,9 @@ import { Search, X } from 'lucide-react';
 // 按参考图布局：顶部搜索 + 左侧肌群竖栏 + 右侧器械筛选 + GIF 双列卡片
 export default function LibraryPage() {
   const [keyword, setKeyword] = useState('');
-  const [muscle, setMuscle] = useState<string | null>(null);
+  const [muscle, setMuscle] = useState(null);
   const [equipment, setEquipment] = useState('全部');
-  const [detailId, setDetailId] = useState<string | null>(null);
+  const [detailId, setDetailId] = useState(null);
 
   const list = useMemo(
     () =>
@@ -75,7 +75,7 @@ export default function LibraryPage() {
       <div className="flex items-start gap-3 mt-4 px-5">
         {/* 左侧肌群竖栏（参考图样式，选中项左侧紫色竖条） */}
         <aside className="sticky top-4 w-[68px] shrink-0 max-h-[calc(100dvh-190px)] overflow-y-auto no-scrollbar rounded-2xl bg-card/60 border border-border/50 py-2">
-          {[{ name: '全部', value: null }, ...MUSCLES.map((m) => ({ name: m, value: m as string | null }))].map((item) => {
+          {[{ name: '全部', value: null }, ...MUSCLES.map((m) => ({ name: m, value: m }))].map((item) => {
             const active = muscle === item.value;
             return (
               <button

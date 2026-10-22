@@ -5,10 +5,9 @@ import SessionPage from '@/pages/SessionPage';
 import ReviewPage from '@/pages/ReviewPage';
 import LibraryPage from '@/pages/LibraryPage';
 import PlanPage from '@/pages/PlanPage';
-import type { Routine, TabKey } from '@/types';
 import { Dumbbell, BarChart3, Library, ClipboardList } from 'lucide-react';
 
-const TABS: { key: TabKey; label: string; icon: typeof Dumbbell }[] = [
+const TABS = [
   { key: 'today', label: '今日', icon: Dumbbell },
   { key: 'review', label: '复盘', icon: BarChart3 },
   { key: 'library', label: '动作库', icon: Library },
@@ -16,10 +15,10 @@ const TABS: { key: TabKey; label: string; icon: typeof Dumbbell }[] = [
 ];
 
 function Shell() {
-  const [tab, setTab] = useState<TabKey>('today');
-  const [session, setSession] = useState<Routine | null>(null);
+  const [tab, setTab] = useState('today');
+  const [session, setSession] = useState(null);
 
-  const startSession = (routine: Routine) => {
+  const startSession = (routine) => {
     setSession(routine);
     window.scrollTo(0, 0);
   };

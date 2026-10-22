@@ -1,13 +1,9 @@
 import { ROUTINES, TEMPLATES, exerciseById } from '@/data/exercises';
 import { useStore } from '@/store';
-import type { Routine } from '@/types';
 import { CalendarDays, RefreshCcw, Share2, Play } from 'lucide-react';
 
-interface Props {
-  onStart: (routine: Routine) => void;
-}
-
-export default function PlanPage({ onStart }: Props) {
+/** @param {{ onStart: (routine: import('@/types').Routine) => void }} props */
+export default function PlanPage({ onStart }) {
   const { workouts } = useStore();
 
   return (
