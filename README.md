@@ -19,7 +19,7 @@
 
 ```
 fitlog/
-├── app/      # 前端工程（React 19 + TypeScript + Vite + Tailwind + Dexie.js）
+├── app/      # 前端工程（React 19 + JavaScript + Vite + Tailwind + Dexie.js）
 ├── tools/    # Python 工具链（动作数据获取、GIF 优化、本地服务器）
 └── docs/     # 需求分析说明书 + 技术设计方案
 ```
@@ -58,7 +58,7 @@ python tools/serve.py             # 或 python -m http.server
 详见 [docs/技术设计方案.md](docs/技术设计方案.md)；需求详见 [docs/需求分析.md](docs/需求分析.md)。
 
 - 架构：纯前端、本地优先（Local-First），无后端
-- 产品代码：TypeScript；开发工具链：Python 3.11+
+- 产品代码：JavaScript（ES2022+，JSDoc + ESLint 保障）；开发工具链：Python 3.11+
 
 ## 许可
 
