@@ -1,0 +1,4 @@
+# Python 工具链依赖（开发机本地使用，Python 3.11+）
+requests>=2.32
+pillow>=10.0
+pandas>=2.0

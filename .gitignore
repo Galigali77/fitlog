@@ -1,0 +1,17 @@
+# 依赖与构建产物
+node_modules/
+dist/
+
+# 版权排除：动作库生成物（由 tools/fetch_openGym.py 在本机生成，不入仓库）
+app/public/exercises/
+
+# Python
+__pycache__/
+.venv/
+*.pyc
+
+# 系统与编辑器
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

@@ -1,0 +1,107 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 258 47% 5%;
+    --foreground: 270 20% 96%;
+    --card: 258 32% 9%;
+    --card-foreground: 270 20% 96%;
+    --popover: 258 32% 9%;
+    --popover-foreground: 270 20% 96%;
+    --primary: 271 91% 65%;
+    --primary-foreground: 270 60% 7%;
+    --secondary: 258 25% 15%;
+    --secondary-foreground: 270 20% 92%;
+    --muted: 258 22% 14%;
+    --muted-foreground: 262 10% 62%;
+    --accent: 271 85% 58%;
+    --accent-foreground: 270 60% 98%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 258 22% 18%;
+    --input: 258 22% 20%;
+    --ring: 271 91% 65%;
+    --radius: 1rem;
+    --sidebar-background: 258 40% 7%;
+    --sidebar-foreground: 270 20% 96%;
+    --sidebar-primary: 271 91% 65%;
+    --sidebar-primary-foreground: 270 60% 7%;
+    --sidebar-accent: 258 25% 15%;
+    --sidebar-accent-foreground: 270 20% 92%;
+    --sidebar-border: 258 22% 18%;
+    --sidebar-ring: 271 91% 65%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+    background-image:
+      radial-gradient(1200px 600px at 85% -10%, rgba(139, 92, 246, 0.18), transparent 60%),
+      radial-gradient(900px 500px at -20% 30%, rgba(88, 28, 135, 0.22), transparent 55%);
+    background-attachment: fixed;
+  }
+}
+
+@layer utilities {
+  .glow-card {
+    box-shadow:
+      0 0 0 1px rgba(168, 85, 247, 0.14),
+      0 8px 32px rgba(0, 0, 0, 0.45);
+  }
+  .glow-primary {
+    box-shadow: 0 4px 24px rgba(168, 85, 247, 0.45);
+  }
+  .text-gradient {
+    background: linear-gradient(135deg, #e9d5ff 0%, #a855f7 55%, #7c3aed 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  /* GIF 占位动画：替代真实动图的原型示意 */
+  .gif-placeholder {
+    background: linear-gradient(135deg, #2e1065 0%, #4c1d95 45%, #1e1b2e 100%);
+    position: relative;
+    overflow: hidden;
+  }
+  .gif-placeholder::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(115deg, transparent 30%, rgba(216, 180, 254, 0.22) 50%, transparent 70%);
+    animation: gif-scan 2.2s linear infinite;
+  }
+  .pulse-ring {
+    animation: pulse-ring 1.6s ease-out infinite;
+  }
+}
+
+@keyframes gif-scan {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes pulse-ring {
+  0% {
+    box-shadow: 0 0 0 0 rgba(168, 85, 247, 0.55);
+  }
+  100% {
+    box-shadow: 0 0 0 14px rgba(168, 85, 247, 0);
+  }
+}
