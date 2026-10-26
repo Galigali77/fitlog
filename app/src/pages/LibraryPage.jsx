@@ -1,59 +1,96 @@
-import { useMemo, useState } from 'react';
-import { EXERCISES, EQUIPMENTS, MUSCLES, exerciseById } from '@/data/exercises';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useLiveQuery } from 'dexie-react-hooks';
+import { db } from '@/db/schema';
+import {
+  loadAllExercises,
+  filterExercises,
+  musclesOf,
+  equipmentsOf,
+  stillUrl,
+  clipUrl,
+} from '@/data/exerciseLibrary';
 import { Search, X } from 'lucide-react';
 
-// 按参考图布局：顶部搜索 + 左侧肌群竖栏 + 右侧器械筛选 + GIF 双列卡片
+/** 稳定的空数组引用（useLiveQuery 加载中占位，避免下游 useMemo 反复失效） */
+const EMPTY_LIST = [];
+
+/**
+ * 动作卡片媒体：列表页只加载静帧（首帧缩略图），进入视口才挂载 <img>（技术方案 5.5）
+ * @param {{ id: string, nameZh: string, hasMedia: boolean }} props
+ */
+function CardMedia({ id, nameZh, hasMedia }) {
+  const ref = useRef(null);
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || !hasMedia) return undefined;
+    const io = new IntersectionObserver(
+      (entries) => entries.some((e) => e.isIntersecting) && setVisible(true),
+      { rootMargin: '200px' } // 提前 200px 预载，滚动更跟手
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [hasMedia]);
+
+  return (
+    <div ref={ref} className="gif-placeholder relative aspect-square flex items-center justify-center overflow-hidden">
+      {visible && hasMedia ? (
+        <img src={stillUrl(id)} alt={nameZh} loading="lazy" className="absolute inset-0 w-full h-full object-cover" />
+      ) : (
+        <span className="text-3xl relative z-10">🏋️</span>
+      )}
+      {hasMedia && (
+        <span className="absolute bottom-1.5 right-1.5 z-10 text-[9px] px-1.5 py-0.5 rounded-md bg-black/50 text-purple-200/90 font-mono border border-purple-400/20">
+          演示
+        </span>
+      )}
+    </div>
+  );
+}
+
+/**
+ * 动作库页（阶段二）：顶部搜索 + 左侧肌群竖栏 + 器械筛选 + 双列卡片
+ * 数据源：public/exercises/index.json（openGym 3000+）+ IndexedDB 自定义动作
+ */
 export default function LibraryPage() {
   const [keyword, setKeyword] = useState('');
   const [muscle, setMuscle] = useState(null);
   const [equipment, setEquipment] = useState('全部');
-  const [detailId, setDetailId] = useState(null);
+  const [detail, setDetail] = useState(null); // 详情页动作对象
+  const [builtin, setBuiltin] = useState(null); // null = 加载中
+  // 自定义动作存 IndexedDB，订阅其变更自动合并
+  const custom = useLiveQuery(() => db.customExercises.toArray(), []) ?? EMPTY_LIST;
 
+  useEffect(() => {
+    let alive = true;
+    loadAllExercises().then((list) => alive && setBuiltin(list));
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  // 内置 + 自定义合并（自定义置顶）
+  const all = useMemo(() => {
+    if (!builtin) return [];
+    const customIds = new Set(custom.map((c) => c.id));
+    return [...custom.map((c) => ({ ...c, custom: true })), ...builtin.filter((e) => !customIds.has(e.id))];
+  }, [builtin, custom]);
+
+  const muscles = useMemo(() => musclesOf(all), [all]);
+  const equipments = useMemo(() => equipmentsOf(all), [all]);
   const list = useMemo(
-    () =>
-      EXERCISES.filter((e) => {
-        if (keyword && !e.nameZh.includes(keyword) && !e.nameEn.toLowerCase().includes(keyword.toLowerCase())) return false;
-        if (muscle && !e.muscles.includes(muscle)) return false;
-        if (equipment !== '全部' && e.equipment !== equipment) return false;
-        return true;
-      }),
-    [keyword, muscle, equipment]
+    () => filterExercises(all, { keyword, muscle, equipment }),
+    [all, keyword, muscle, equipment]
   );
 
-  // 动作详情（抽屉式全屏）
-  if (detailId) {
-    const ex = exerciseById(detailId);
-    return (
-      <div className="px-5 pt-5 pb-28 space-y-5">
-        <button onClick={() => setDetailId(null)} className="w-9 h-9 rounded-xl bg-card/80 border border-border/60 flex items-center justify-center active:scale-95 transition">
-          <X size={18} />
-        </button>
-        {/* GIF 演示区（正式版替换为 openGym 动图，见版权说明） */}
-        <div className="gif-placeholder rounded-3xl h-64 flex items-center justify-center border border-purple-500/25 glow-card">
-          <div className="text-center relative z-10">
-            <p className="text-5xl">🏋️</p>
-            <p className="text-xs text-purple-200/80 mt-2 tracking-widest">GIF 演示 · 循环播放</p>
-          </div>
-        </div>
-        <div>
-          <h2 className="text-2xl font-bold">{ex.nameZh}</h2>
-          <p className="text-sm text-muted-foreground">{ex.nameEn}</p>
-          <div className="flex flex-wrap gap-1.5 mt-3">
-            {ex.muscles.map((m) => (
-              <span key={m} className="text-[11px] px-2.5 py-1 rounded-full bg-purple-500/15 text-purple-200 border border-purple-500/25">{m}</span>
-            ))}
-            <span className="text-[11px] px-2.5 py-1 rounded-full bg-card border border-border/60 text-muted-foreground">{ex.equipment} · {ex.type}</span>
-          </div>
-        </div>
-        <section className="rounded-3xl p-4 bg-card/80 border border-border/60">
-          <h3 className="font-bold text-sm mb-2">动作要领</h3>
-          <p className="text-sm text-muted-foreground leading-relaxed">{ex.desc}</p>
-        </section>
-        <p className="text-[10px] text-muted-foreground/60 leading-relaxed px-1">
-          媒体版权声明（正式版）：动作演示动图 © Aliaksandr Makatserchyk / Gym Visual，经 openGym 项目非商业授权使用。
-        </p>
-      </div>
-    );
+  if (builtin === null) {
+    return <p className="px-5 pt-10 text-sm text-muted-foreground">动作库加载中…</p>;
+  }
+
+  // 动作详情（抽屉式全屏）：动画循环播放，可暂停（FR-EX-07）
+  if (detail) {
+    return <ExerciseDetail exercise={detail} onClose={() => setDetail(null)} />;
   }
 
   return (
@@ -66,16 +103,16 @@ export default function LibraryPage() {
           <input
             value={keyword}
             onChange={(e) => setKeyword(e.target.value)}
-            placeholder="输入动作名字搜索"
+            placeholder="输入动作名字搜索（中/英）"
             className="flex-1 bg-transparent text-sm focus:outline-none placeholder:text-muted-foreground/60"
           />
         </div>
       </div>
 
       <div className="flex items-start gap-3 mt-4 px-5">
-        {/* 左侧肌群竖栏（参考图样式，选中项左侧紫色竖条） */}
+        {/* 左侧肌群竖栏（选中项左侧紫色竖条） */}
         <aside className="sticky top-4 w-[68px] shrink-0 max-h-[calc(100dvh-190px)] overflow-y-auto no-scrollbar rounded-2xl bg-card/60 border border-border/50 py-2">
-          {[{ name: '全部', value: null }, ...MUSCLES.map((m) => ({ name: m, value: m }))].map((item) => {
+          {[{ name: '全部', value: null }, ...muscles.map((m) => ({ name: m, value: m }))].map((item) => {
             const active = muscle === item.value;
             return (
               <button
@@ -96,7 +133,7 @@ export default function LibraryPage() {
         <main className="flex-1 min-w-0">
           {/* 器械筛选 chips */}
           <div className="flex gap-2 overflow-x-auto no-scrollbar pb-3">
-            {EQUIPMENTS.map((eq) => (
+            {equipments.map((eq) => (
               <button
                 key={eq}
                 onClick={() => setEquipment(eq)}
@@ -111,24 +148,15 @@ export default function LibraryPage() {
             ))}
           </div>
 
-          {/* GIF 双列卡片 */}
+          {/* 双列卡片（静帧懒加载） */}
           <div className="grid grid-cols-2 gap-3">
-            {list.map((ex) => (
+            {list.slice(0, 200).map((ex) => (
               <button
                 key={ex.id}
-                onClick={() => setDetailId(ex.id)}
+                onClick={() => setDetail(ex)}
                 className="text-left rounded-2xl overflow-hidden bg-card/80 border border-border/60 active:scale-[0.97] transition glow-card"
               >
-                {/* GIF 演示位（占位动画，正式版为 openGym 动图循环播放） */}
-                <div className="gif-placeholder relative aspect-square flex items-center justify-center">
-                  <span className="absolute left-0 top-0 z-10 text-[10px] px-2 py-0.5 rounded-br-xl bg-gradient-to-r from-purple-500 to-violet-600 text-primary-foreground font-medium">
-                    讲解
-                  </span>
-                  <span className="text-3xl relative z-10">🏋️</span>
-                  <span className="absolute bottom-1.5 right-1.5 z-10 text-[9px] px-1.5 py-0.5 rounded-md bg-black/50 text-purple-200/90 font-mono border border-purple-400/20">
-                    GIF
-                  </span>
-                </div>
+                <CardMedia id={ex.id} nameZh={ex.nameZh} hasMedia={!!ex.hasMedia} />
                 <div className="px-3 py-2.5">
                   <p className="font-semibold text-[13px] leading-snug">{ex.nameZh}</p>
                   <p className="text-[10px] text-muted-foreground mt-0.5 truncate">
@@ -141,11 +169,92 @@ export default function LibraryPage() {
           {list.length === 0 && (
             <p className="text-center text-sm text-muted-foreground py-10">没有匹配的动作</p>
           )}
+          {list.length > 200 && (
+            <p className="text-[10px] text-muted-foreground mt-3 text-center">已显示前 200 条，请用搜索或筛选缩小范围</p>
+          )}
           <p className="text-[10px] text-muted-foreground/60 mt-4 leading-relaxed">
-            16 个演示动作 · 正式版 3000+（openGym 数据）
+            共 {all.length} 个动作 · 数据来源 openGym
           </p>
         </main>
       </div>
+    </div>
+  );
+}
+
+/**
+ * 动作详情页：openGym 演示动画（循环静音播放，点按可暂停）+ 文字要领 + 版权声明
+ * @param {{ exercise: import('@/types').Exercise, onClose: () => void }} props
+ */
+function ExerciseDetail({ exercise, onClose }) {
+  const videoRef = useRef(null);
+  const [playing, setPlaying] = useState(true);
+
+  const togglePlay = () => {
+    const v = videoRef.current;
+    if (!v) return;
+    if (v.paused) {
+      v.play();
+      setPlaying(true);
+    } else {
+      v.pause();
+      setPlaying(false);
+    }
+  };
+
+  return (
+    <div className="px-5 pt-5 pb-28 space-y-5">
+      <button onClick={onClose} className="w-9 h-9 rounded-xl bg-card/80 border border-border/60 flex items-center justify-center active:scale-95 transition">
+        <X size={18} />
+      </button>
+
+      {/* 演示区：有动画播动画（原样使用，未修改），无动画用文字要领兜底 */}
+      {exercise.hasMedia ? (
+        <button onClick={togglePlay} className="block w-full rounded-3xl overflow-hidden border border-purple-500/25 glow-card bg-black/40">
+          <video
+            ref={videoRef}
+            src={clipUrl(exercise.id)}
+            poster={stillUrl(exercise.id)}
+            className="w-full aspect-square object-contain"
+            autoPlay
+            loop
+            muted
+            playsInline
+          />
+          <p className="text-[10px] text-purple-200/70 py-1.5 bg-background/70">{playing ? '点按暂停' : '点按播放'}</p>
+        </button>
+      ) : (
+        <div className="gif-placeholder rounded-3xl h-64 flex items-center justify-center border border-purple-500/25 glow-card">
+          <div className="text-center relative z-10">
+            <p className="text-5xl">🏋️</p>
+            <p className="text-xs text-purple-200/80 mt-2 tracking-widest">暂无演示动画，参考下方文字要领</p>
+          </div>
+        </div>
+      )}
+
+      <div>
+        <h2 className="text-2xl font-bold">{exercise.nameZh}</h2>
+        <p className="text-sm text-muted-foreground">{exercise.nameEn}</p>
+        <div className="flex flex-wrap gap-1.5 mt-3">
+          {exercise.muscles.map((m) => (
+            <span key={m} className="text-[11px] px-2.5 py-1 rounded-full bg-purple-500/15 text-purple-200 border border-purple-500/25">{m}</span>
+          ))}
+          {(exercise.secondaryMuscles ?? []).map((m) => (
+            <span key={m} className="text-[11px] px-2.5 py-1 rounded-full bg-card border border-border/60 text-muted-foreground">协同 · {m}</span>
+          ))}
+          <span className="text-[11px] px-2.5 py-1 rounded-full bg-card border border-border/60 text-muted-foreground">{exercise.equipment} · {exercise.type}</span>
+        </div>
+      </div>
+
+      <section className="rounded-3xl p-4 bg-card/80 border border-border/60">
+        <h3 className="font-bold text-sm mb-2">动作要领</h3>
+        <p className="text-sm text-muted-foreground leading-relaxed whitespace-pre-line">{exercise.desc}</p>
+      </section>
+
+      {exercise.hasMedia && (
+        <p className="text-[10px] text-muted-foreground/60 leading-relaxed px-1">
+          动作演示媒体 © Aliaksandr Makatserchyk / Gym Visual，经 openGym 项目授权仅限非商业用途原样使用。
+        </p>
+      )}
     </div>
   );
 }

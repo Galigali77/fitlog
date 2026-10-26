@@ -1,6 +1,6 @@
 MIT License
 
-Copyright (c) 2026 唐子晨 (tangzichen)
+Copyright (c) 2026 FitLog contributors
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -19,6 +19,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
-注意：本许可证仅覆盖本仓库中的自研代码。第三方素材（动作数据与演示媒体）
-的授权条款见 NOTICE.md，不适用 MIT。

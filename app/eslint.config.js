@@ -34,7 +34,7 @@ export default defineConfig([
   },
   // store 同时导出组件与 hook，属有意为之，豁免 fast-refresh 规则
   {
-    files: ['src/store.jsx'],
+    files: ['src/store/index.jsx'],
     rules: {
       'react-refresh/only-export-components': 'off',
     },

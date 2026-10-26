@@ -1,9 +1,8 @@
 # 依赖与构建产物
 node_modules/
 dist/
-.vite/
 
-# 版权排除：动作库生成物（由 tools/fetch_openGym.py 在本机生成，不入仓库）
+# 版权排除：动作库生成物（由 tools/fetch_openGym.py 在使用者本机重新生成）
 app/public/exercises/
 
 # Python
@@ -11,8 +10,10 @@ __pycache__/
 .venv/
 *.pyc
 
+# openGym 上游数据缓存（fetch_openGym.py 可重新下载）
+tools/_cache/
+
 # 系统与编辑器
 .DS_Store
-Thumbs.db
 .vscode/
-.idea/
+Thumbs.db

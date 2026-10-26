@@ -1,9 +1,11 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '@/store';
-import { BENCH_HISTORY, EXERCISE_MUSCLE_MAP, todayStr } from '@/data/history';
-import { MUSCLES } from '@/data/exercises';
+import { todayStr, exerciseHistory } from '@/db/repository';
+import { exerciseById } from '@/data/exerciseLibrary';
+import { suggestOverload, parseTargetReps } from '@/domain/overload';
 import { Camera, Lightbulb, User, BellRing } from 'lucide-react';
 
+/** 训练热力图（FR-ANA-01）：近 15 周 GitHub 风格格子，按当日训练次数映射颜色 */
 /** @param {{ workouts: { date: string }[] }} props */
 function Heatmap({ workouts }) {
   const counts = new Map();
@@ -15,7 +17,7 @@ function Heatmap({ workouts }) {
   for (let i = 0; i < 105; i++) {
     const d = new Date(start);
     d.setDate(start.getDate() + i);
-    const key = d.toISOString().slice(0, 10);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     days.push({ date: key, count: counts.get(key) ?? 0, future: d > today });
   }
   const level = (c) => (c === 0 ? 'bg-purple-950/60' : c === 1 ? 'bg-purple-800/80' : c === 2 ? 'bg-purple-600' : 'bg-purple-400');
@@ -32,6 +34,18 @@ function Heatmap({ workouts }) {
   );
 }
 
+/** Blob → ObjectURL（URL 变化/组件卸载时释放，避免内存泄漏） */
+function useBlobUrl(blob) {
+  const url = useMemo(() => (blob ? URL.createObjectURL(blob) : null), [blob]);
+  useEffect(
+    () => () => {
+      if (url) URL.revokeObjectURL(url);
+    },
+    [url]
+  );
+  return url;
+}
+
 // 身材占位图（未上传照片时的示意）
 function PhotoPlaceholder({ label }) {
   return (
@@ -40,6 +54,13 @@ function PhotoPlaceholder({ label }) {
       <p className="text-[10px] text-purple-200/70 mt-1.5 tracking-widest relative z-10">{label}</p>
     </div>
   );
+}
+
+// 历史记录中的一张照片（Blob 渲染）
+function HistoryPhoto({ blob, label }) {
+  const url = useBlobUrl(blob);
+  if (!url) return <PhotoPlaceholder label={label} />;
+  return <img src={url} alt={label} className="rounded-xl w-full aspect-[3/4] object-cover border border-border/60" />;
 }
 
 // 上传位按钮（有预览则显示预览图）
@@ -58,11 +79,13 @@ function PickBtn({ label, value, onPick }) {
   );
 }
 
-// 身材记录：每 15 天一组正面 + 背面照片
+// 身材记录（FR-ANA-02）：每 15 天一组正面 + 背面照片，Blob 存 IndexedDB，仅存本机
 function BodyRecord() {
   const { bodyPhotos, addBodyPhotos } = useStore();
-  const [front, setFront] = useState(null);
+  const [front, setFront] = useState(null); // 预览用 dataURL
   const [back, setBack] = useState(null);
+  const frontFile = useRef(null); // 原始 File（Blob），保存时直存 IndexedDB
+  const backFile = useRef(null);
   const [error, setError] = useState('');
   const frontRef = useRef(null);
   const backRef = useRef(null);
@@ -71,24 +94,27 @@ function BodyRecord() {
   const lastDate = sorted[0]?.date;
   const daysLeft = useMemo(() => {
     if (!lastDate) return 0;
-    const diff = Math.floor((new Date(todayStr).getTime() - new Date(lastDate).getTime()) / 86400000);
+    const diff = Math.floor((new Date(todayStr()).getTime() - new Date(lastDate).getTime()) / 86400000);
     return Math.max(0, 15 - diff);
   }, [lastDate]);
 
-  /** @param {File|undefined} file @param {(s: string) => void} setter */
-  const readFile = (file, setter) => {
+  /** @param {File|undefined} file @param {(s: string) => void} setter @param {import('react').RefObject<File|null>} fileRef */
+  const readFile = (file, setter, fileRef) => {
     if (!file) return;
+    fileRef.current = file; // 保留 Blob 本体
     const reader = new FileReader();
     reader.onload = () => setter(String(reader.result));
     reader.readAsDataURL(file);
   };
 
-  const save = () => {
-    if (!front || !back) {
+  const save = async () => {
+    if (!frontFile.current || !backFile.current) {
       setError('身材记录需要至少正面和背面两张照片');
       return;
     }
-    addBodyPhotos({ id: `bp-${Date.now()}`, date: todayStr, front, back });
+    await addBodyPhotos({ date: todayStr(), front: frontFile.current, back: backFile.current });
+    frontFile.current = null;
+    backFile.current = null;
     setFront(null);
     setBack(null);
     setError('');
@@ -114,8 +140,8 @@ function BodyRecord() {
         <PickBtn label="正面" value={front} onPick={() => frontRef.current?.click()} />
         <PickBtn label="背面" value={back} onPick={() => backRef.current?.click()} />
       </div>
-      <input ref={frontRef} type="file" accept="image/*" className="hidden" onChange={(e) => { readFile(e.target.files?.[0], setFront); e.target.value = ''; }} />
-      <input ref={backRef} type="file" accept="image/*" className="hidden" onChange={(e) => { readFile(e.target.files?.[0], setBack); e.target.value = ''; }} />
+      <input ref={frontRef} type="file" accept="image/*" className="hidden" onChange={(e) => { readFile(e.target.files?.[0], setFront, frontFile); e.target.value = ''; }} />
+      <input ref={backRef} type="file" accept="image/*" className="hidden" onChange={(e) => { readFile(e.target.files?.[0], setBack, backFile); e.target.value = ''; }} />
       {(front || back) && (
         <button onClick={save} className="mt-3 w-full py-3 rounded-2xl bg-gradient-to-r from-purple-500 to-violet-600 font-bold text-sm glow-primary active:scale-[0.98] transition">
           保存本次身材记录
@@ -123,7 +149,7 @@ function BodyRecord() {
       )}
       {error && <p className="text-[11px] text-red-400 mt-2">{error}</p>}
 
-      {/* 历史时间线 */}
+      {/* 历史时间线（按日期倒序） */}
       {sorted.length > 0 && (
         <div className="mt-4 space-y-3">
           {sorted.map((p) => (
@@ -133,8 +159,8 @@ function BodyRecord() {
                 <p className="text-[9px] text-muted-foreground">{p.date.slice(0, 4)}</p>
               </div>
               <div className="grid grid-cols-2 gap-2 flex-1">
-                {p.front ? <img src={p.front} alt="正面" className="rounded-xl w-full aspect-[3/4] object-cover border border-border/60" /> : <PhotoPlaceholder label="正面" />}
-                {p.back ? <img src={p.back} alt="背面" className="rounded-xl w-full aspect-[3/4] object-cover border border-border/60" /> : <PhotoPlaceholder label="背面" />}
+                <HistoryPhoto blob={p.front} label="正面" />
+                <HistoryPhoto blob={p.back} label="背面" />
               </div>
             </div>
           ))}
@@ -144,21 +170,49 @@ function BodyRecord() {
   );
 }
 
-export default function ReviewPage() {
+/** 渐进超负荷建议（FR-ANA-03）：基于真实历史 + 计划目标次数区间 */
+function useOverloadSuggestions() {
+  const { routines, settings } = useStore();
+  const [suggestions, setSuggestions] = useState([]);
+  const routineKey = routines.map((r) => `${r.id}:${r.items.length}`).join('|');
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      const out = [];
+      for (const r of routines) {
+        for (const it of r.items) {
+          const { isAmrap, top } = parseTargetReps(it.targetReps);
+          if (isAmrap || top <= 0) continue;
+          const history = await exerciseHistory(it.exerciseId);
+          if (history.length < (settings.capHits ?? 2)) continue;
+          const s = suggestOverload({
+            recentSessions: history.map((h) => h.sets),
+            targetReps: it.targetReps,
+            increment: it.increment ?? settings.incrementKg ?? 2.5,
+            capHits: settings.capHits ?? 2,
+          });
+          if (s) {
+            const meta = await exerciseById(it.exerciseId);
+            out.push({ ...s, exerciseName: meta?.nameZh ?? it.exerciseId, targetReps: it.targetReps });
+          }
+        }
+      }
+      if (alive) setSuggestions(out);
+    })();
+    return () => {
+      alive = false;
+    };
+    // settings 对象随 Dexie 订阅更新，纳入依赖保证配置变更后重算
+  }, [routineKey, settings]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  return suggestions;
+}
+
+export default function ReviewPage({ onOpenWorkout, onLogPast }) {
   const { workouts } = useStore();
-
-  // 肌肉群覆盖（近 30 天）
-  const thirtyDaysAgo = new Date();
-  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-  const since = thirtyDaysAgo.toISOString().slice(0, 10);
-  const coverage = new Map();
-  workouts.filter((w) => w.date >= since).forEach((w) => {
-    (EXERCISE_MUSCLE_MAP[w.title] ?? []).forEach((m) => coverage.set(m, (coverage.get(m) ?? 0) + 1));
-  });
-  const maxCount = Math.max(1, ...coverage.values());
-
-  // 超负荷建议：平板卧推连续两次达到次数上限 10
-  const hitCap = BENCH_HISTORY.length >= 2 && BENCH_HISTORY.slice(-2).every((b) => b.reps >= 10);
+  const suggestions = useOverloadSuggestions();
+  const today = todayStr();
 
   return (
     <div className="px-5 pt-6 pb-28 space-y-5">
@@ -168,20 +222,21 @@ export default function ReviewPage() {
       </header>
 
       {/* 超负荷建议 */}
-      {hitCap && (
-        <section className="rounded-3xl p-4 bg-gradient-to-br from-purple-600/25 to-transparent border border-purple-400/30 glow-card flex gap-3">
+      {suggestions.map((s) => (
+        <section key={s.exerciseName} className="rounded-3xl p-4 bg-gradient-to-br from-purple-600/25 to-transparent border border-purple-400/30 glow-card flex gap-3">
           <div className="w-10 h-10 rounded-2xl bg-purple-500/25 flex items-center justify-center text-purple-200 shrink-0">
             <Lightbulb size={18} />
           </div>
           <div>
             <p className="font-bold text-sm text-purple-100">渐进超负荷建议</p>
             <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
-              平板卧推已连续 2 次达到次数上限（50kg × 10），建议下次加重{' '}
-              <span className="text-purple-300 font-bold font-mono">+2.5kg → 52.5kg</span>，目标回到 8 次区间。
+              {s.exerciseName}：{s.reason}（当前 {s.currentWeight}kg，目标 {s.targetReps}），建议下次{' '}
+              {s.kind === 'increase' ? '加重' : '减重'}{' '}
+              <span className="text-purple-300 font-bold font-mono">→ {s.suggestedWeight}kg</span>。
             </p>
           </div>
         </section>
-      )}
+      ))}
 
       {/* 热力图 */}
       <section className="rounded-3xl p-4 bg-card/80 border border-border/60 glow-card">
@@ -199,52 +254,37 @@ export default function ReviewPage() {
           </span>
         </div>
         <Heatmap workouts={workouts} />
-        <p className="text-[10px] text-muted-foreground mt-2">近 15 周 · 共 {workouts.filter((w) => w.date <= todayStr).length} 次训练</p>
+        <p className="text-[10px] text-muted-foreground mt-2">近 15 周 · 共 {workouts.filter((w) => w.date <= today).length} 次训练</p>
       </section>
 
-      {/* 身材记录（替代原进步曲线） */}
+      {/* 身材记录（每 15 天一组，照片仅存本地） */}
       <BodyRecord />
 
-      {/* 肌肉覆盖 */}
-      <section className="rounded-3xl p-4 bg-card/80 border border-border/60 glow-card">
-        <h3 className="font-bold text-sm mb-3">肌肉覆盖 · 近 30 天</h3>
-        <div className="space-y-2.5">
-          {MUSCLES.map((m) => {
-            const c = coverage.get(m) ?? 0;
-            const pct = (c / maxCount) * 100;
-            return (
-              <div key={m} className="flex items-center gap-3">
-                <span className={`w-14 text-xs ${c === 0 ? 'text-muted-foreground/60' : ''}`}>{m}</span>
-                <div className="flex-1 h-2 rounded-full bg-purple-950/70 overflow-hidden">
-                  <div
-                    className={`h-full rounded-full transition-all ${c === 0 ? 'bg-transparent' : 'bg-gradient-to-r from-purple-600 to-purple-400'}`}
-                    style={{ width: `${pct}%` }}
-                  />
-                </div>
-                <span className="w-8 text-right text-[10px] font-mono text-muted-foreground">
-                  {c === 0 ? '冷落' : `${c}次`}
-                </span>
-              </div>
-            );
-          })}
-        </div>
-      </section>
-
-      {/* 时间线 */}
+      {/* 时间线（FR-ANA-06，倒序；点入查看/编辑明细，FR-LOG-09） */}
       <section>
-        <h3 className="font-bold text-sm mb-3">训练时间线</h3>
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="font-bold text-sm">训练时间线</h3>
+          <button onClick={onLogPast} className="text-xs px-3 py-1.5 rounded-full border border-purple-500/40 text-purple-300 active:scale-95 transition">
+            ＋ 补记
+          </button>
+        </div>
         <div className="space-y-2.5">
           {workouts.slice(0, 8).map((w) => (
-            <div key={w.id} className="rounded-2xl px-4 py-3 bg-card/70 border border-border/60 flex items-center justify-between">
+            <button key={w.id} onClick={() => onOpenWorkout(w.id)} className="w-full text-left rounded-2xl px-4 py-3 bg-card/70 border border-border/60 flex items-center justify-between active:scale-[0.98] transition">
               <div>
                 <p className="font-semibold text-sm">{w.title}</p>
-                <p className="text-xs text-muted-foreground mt-0.5">{w.date}</p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {w.date} · {w.exercises?.length ?? 0} 个动作
+                </p>
               </div>
-              {w.date === todayStr && (
+              {w.date === today && (
                 <span className="text-[10px] px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-200 border border-purple-400/30">今天</span>
               )}
-            </div>
+            </button>
           ))}
+          {workouts.length === 0 && (
+            <p className="text-sm text-muted-foreground py-6 text-center">还没有训练记录</p>
+          )}
         </div>
       </section>
     </div>

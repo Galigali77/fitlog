@@ -1,50 +1,121 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useStore } from '@/store';
-import { exerciseById } from '@/data/exercises';
-import { todayStr } from '@/data/history';
+import { lastSetsOf, exerciseHistory, todayStr, loadDraft, saveDraft, clearDraft } from '@/db/repository';
+import { exerciseById } from '@/data/exerciseLibrary';
+import { isNewPR, shouldNotifyPR } from '@/domain/pr';
+import { workoutVolume } from '@/domain/volume';
+import { useRestTimer } from '@/hooks/useRestTimer';
+import ExercisePicker from '@/components/ExercisePicker';
 import { ArrowLeft, Check, Plus, Timer, Trophy, X } from 'lucide-react';
 
-// 每组的历史最佳容量（演示 PR 检测用）
-const HISTORICAL_BEST = {
-  squat: 80 * 8, bench: 50 * 10, deadlift: 100 * 6, ohp: 35 * 8, row: 55 * 10,
-  'db-press': 22.5 * 10, 'db-fly': 10 * 12, 'db-curl': 12.5 * 10, 'db-lunge': 20 * 12,
-  'db-shoulder': 7.5 * 15, pullup: 70 * 10, pushup: 0, plank: 0, calf: 0,
-  'leg-raise': 0, romanian: 60 * 10,
-};
-
-// 上次数据预填
-const LAST_TIME = {
-  squat: { weight: 77.5, reps: 8 },
-  bench: { weight: 50, reps: 10 },
-  ohp: { weight: 35, reps: 8 },
-  row: { weight: 55, reps: 10 },
-  'db-curl': { weight: 12.5, reps: 10 },
-};
-
-/** @param {{ routine: import('@/types').Routine, onFinish: () => void }} props */
-export default function SessionPage({ routine, onFinish }) {
-  const { addWorkout } = useStore();
-  const [exercises, setExercises] = useState(() =>
-    routine.items.map((it) => ({
-      exerciseId: it.exerciseId,
-      nameZh: exerciseById(it.exerciseId).nameZh,
-      sets: Array.from({ length: it.targetSets }, () => ({
-        ...(LAST_TIME[it.exerciseId] ?? { weight: 0, reps: 0 }),
-        done: false,
-      })),
-    }))
-  );
+/**
+ * 记录页：逐组记录 + 上次数据预填（FR-LOG-03）+ PR 检测（FR-LOG-05）+ 组间计时器（FR-LOG-04）
+ * 数据在「结束训练」时事务式落盘 IndexedDB，刷新后仍在（阶段一验收）。
+ * 阶段三扩展：支持自由训练（routine=null，从动作库加动作）与补记（date 指定历史日期，FR-LOG-09）。
+ */
+/** @param {{ routine: import('@/types').Routine | null, date?: string, onFinish: () => void }} props */
+export default function SessionPage({ routine, date, onFinish }) {
+  const { saveWorkout, settings } = useStore();
+  const [exercises, setExercises] = useState(null); // null = 预填数据加载中
+  const [historyMap, setHistoryMap] = useState({}); // exerciseId → 历史所有组（PR 检测用）
+  const [lastMap, setLastMap] = useState({}); // exerciseId → 上次各组（「上次」角标用）
+  const [nameMap, setNameMap] = useState({});
   const [prs, setPrs] = useState([]);
-  const [restLeft, setRestLeft] = useState(0);
-  const timerRef = useRef(null);
+  const [picking, setPicking] = useState(false);
+  const [quitOpen, setQuitOpen] = useState(false); // 退出确认弹层（退出保留草稿 / 放弃清除）
+  const [startedAt, setStartedAt] = useState(() => Date.now());
+  const { left: restLeft, flash, start: startRest, stop: stopRest } = useRestTimer(settings.restSeconds);
 
+  const title = routine?.name ?? '自由训练';
+  const workoutDate = date ?? todayStr();
+
+  /** 加载某动作的元数据/上次组/历史，供预填与 PR 检测 */
+  const loadExerciseMeta = async (exerciseId) => {
+    const [meta, last, history] = await Promise.all([
+      exerciseById(exerciseId),
+      lastSetsOf(exerciseId),
+      exerciseHistory(exerciseId),
+    ]);
+    setNameMap((prev) => ({ ...prev, [exerciseId]: meta?.nameZh ?? exerciseId }));
+    setLastMap((prev) => ({ ...prev, [exerciseId]: last }));
+    setHistoryMap((prev) => ({ ...prev, [exerciseId]: history.flatMap((h) => h.sets) }));
+    return { meta, last };
+  };
+
+  // 初始化：优先恢复未完成的草稿（刷新/杀后台后继续），否则按计划项生成组并预填
   useEffect(() => {
-    if (restLeft <= 0) return;
-    timerRef.current = window.setTimeout(() => setRestLeft((s) => s - 1), 1000);
+    let alive = true;
+    (async () => {
+      // 草稿恢复：仅当草稿属于当前计划（或同为自由训练）时恢复，避免串台
+      const draft = await loadDraft();
+      if (alive && draft && (draft.routineId ?? null) === (routine?.id ?? null)) {
+        setExercises(draft.exercises ?? []);
+        setNameMap(draft.nameMap ?? {});
+        setLastMap(draft.lastMap ?? {});
+        setHistoryMap(draft.historyMap ?? {});
+        setPrs(draft.prs ?? []);
+        if (draft.startedAt) setStartedAt(draft.startedAt); // 恢复开始时刻，训练时长不含中断
+        return;
+      }
+      if (!routine) {
+        setExercises([]);
+        return;
+      }
+      const entries = await Promise.all(
+        routine.items.map(async (it) => ({ it, ...(await loadExerciseMeta(it.exerciseId)) }))
+      );
+      if (!alive) return;
+      setExercises(
+        entries.map(({ it, last }) => ({
+          exerciseId: it.exerciseId,
+          sets: Array.from({ length: it.targetSets }, (_, i) => ({
+            weight: last?.[i]?.weight ?? last?.[0]?.weight ?? 0,
+            reps: last?.[i]?.reps ?? last?.[0]?.reps ?? 0,
+            done: false,
+          })),
+        }))
+      );
+    })();
     return () => {
-      if (timerRef.current) window.clearTimeout(timerRef.current);
+      alive = false;
     };
-  }, [restLeft]);
+  }, [routine]);
+
+  // 自动保存草稿：组数据变化 500ms 后防抖落盘（含 done 状态），刷新/关闭标签页后可恢复
+  useEffect(() => {
+    if (exercises === null) return undefined;
+    const t = window.setTimeout(() => {
+      saveDraft({
+        routineId: routine?.id ?? null,
+        routineName: routine?.name ?? null,
+        date: workoutDate,
+        startedAt,
+        exercises,
+        nameMap,
+        lastMap,
+        historyMap,
+        prs,
+      });
+    }, 500);
+    return () => window.clearTimeout(t);
+  }, [exercises, nameMap, lastMap, historyMap, prs, startedAt, workoutDate, routine]);
+
+  /** 训练中途从动作库追加动作（默认 3 组，按上次数据预填） */
+  const addExercise = async (ex) => {
+    setPicking(false);
+    const { last } = await loadExerciseMeta(ex.id);
+    setExercises((prev) => [
+      ...(prev ?? []),
+      {
+        exerciseId: ex.id,
+        sets: Array.from({ length: 3 }, (_, i) => ({
+          weight: last?.[i]?.weight ?? last?.[0]?.weight ?? 0,
+          reps: last?.[i]?.reps ?? last?.[0]?.reps ?? 0,
+          done: false,
+        })),
+      },
+    ]);
+  };
 
   const updateSet = (ei, si, patch) => {
     setExercises((prev) =>
@@ -58,48 +129,67 @@ export default function SessionPage({ routine, onFinish }) {
     const ex = exercises[ei];
     const set = ex.sets[si];
     updateSet(ei, si, { done: true });
-    // PR 检测
-    const best = HISTORICAL_BEST[ex.exerciseId] ?? 0;
-    if (set.weight * set.reps > best && !prs.includes(ex.nameZh)) {
-      setPrs((prev) => [...prev, ex.nameZh]);
+    // PR 检测：与真实历史比较，同一动作本次训练只提示一次
+    const name = nameMap[ex.exerciseId] ?? ex.exerciseId;
+    if (isNewPR(set, historyMap[ex.exerciseId]) && shouldNotifyPR(name, prs)) {
+      setPrs((prev) => [...prev, name]);
     }
-    setRestLeft(90); // 组间休息计时器（默认 90s）
+    startRest(); // 组间休息计时器（默认秒数来自设置）
   };
 
   const addSet = (ei) => {
     setExercises((prev) =>
       prev.map((ex, i) =>
-        i !== ei ? ex : { ...ex, sets: [...ex.sets, { weight: ex.sets.at(-1)?.weight ?? 0, reps: ex.sets.at(-1)?.reps ?? 0, done: false }] }
+        i !== ei
+          ? ex
+          : { ...ex, sets: [...ex.sets, { weight: ex.sets.at(-1)?.weight ?? 0, reps: ex.sets.at(-1)?.reps ?? 0, done: false }] }
       )
     );
   };
 
-  const volume = useMemo(
-    () => exercises.reduce((sum, ex) => sum + ex.sets.reduce((s, x) => s + (x.done ? x.weight * x.reps : 0), 0), 0),
-    [exercises]
-  );
-  const doneSets = exercises.reduce((n, ex) => n + ex.sets.filter((s) => s.done).length, 0);
+  const volume = useMemo(() => workoutVolume(exercises ?? [], { onlyDone: true }), [exercises]);
+  const doneSets = (exercises ?? []).reduce((n, ex) => n + ex.sets.filter((s) => s.done).length, 0);
 
-  const finish = () => {
-    addWorkout({
-      id: `w-${Date.now()}`,
-      date: todayStr,
-      title: routine.name,
-      routineName: routine.name,
-      exercises: exercises.filter((e) => e.sets.some((s) => s.done)),
-    });
+  const finish = async () => {
+    const done = (exercises ?? [])
+      .map((ex) => ({ ...ex, sets: ex.sets.filter((s) => s.done) }))
+      .filter((ex) => ex.sets.length > 0);
+    if (done.length > 0) {
+      await saveWorkout({
+        date: workoutDate,
+        title,
+        routineId: routine?.id ?? null, // 自由训练无关联计划（FR-LOG-08）
+        routineName: routine?.name ?? null,
+        durationMin: Math.max(1, Math.round((Date.now() - startedAt) / 60000)),
+        exercises: done.map((ex) => ({
+          exerciseId: ex.exerciseId,
+          nameZh: nameMap[ex.exerciseId] ?? ex.exerciseId,
+          sets: ex.sets.map(({ weight, reps }) => ({ weight, reps })),
+        })),
+      });
+    }
+    await clearDraft(); // 训练落盘（或空训练放弃）后清除草稿，避免残留
     onFinish();
   };
 
+  if (!exercises) {
+    return <p className="px-5 pt-10 text-sm text-muted-foreground">正在预填上次数据…</p>;
+  }
+
   return (
     <div className="px-5 pt-5 pb-36 space-y-5">
+      {/* 到时闪屏层 */}
+      {flash && <div className="fixed inset-0 z-[60] bg-purple-400/40 pointer-events-none" />}
+
       <header className="flex items-center justify-between">
-        <button onClick={onFinish} className="w-9 h-9 rounded-xl bg-card/80 border border-border/60 flex items-center justify-center active:scale-95 transition">
+        <button onClick={() => setQuitOpen(true)} className="w-9 h-9 rounded-xl bg-card/80 border border-border/60 flex items-center justify-center active:scale-95 transition">
           <ArrowLeft size={18} />
         </button>
         <div className="text-center">
-          <h1 className="font-bold">{routine.name}</h1>
-          <p className="text-[11px] text-muted-foreground font-mono">已完成 {doneSets} 组 · {volume} kg 容量</p>
+          <h1 className="font-bold">{title}</h1>
+          <p className="text-[11px] text-muted-foreground font-mono">
+            {workoutDate !== todayStr() ? `补记 ${workoutDate} · ` : ''}已完成 {doneSets} 组 · {volume} kg 容量
+          </p>
         </div>
         <button onClick={finish} className="px-3.5 h-9 rounded-xl bg-gradient-to-r from-purple-500 to-violet-600 text-sm font-bold glow-primary active:scale-95 transition">
           结束
@@ -114,18 +204,15 @@ export default function SessionPage({ routine, onFinish }) {
       )}
 
       {exercises.map((ex, ei) => {
-        const meta = exerciseById(ex.exerciseId);
+        const last = lastMap[ex.exerciseId];
         return (
           <section key={ex.exerciseId} className="rounded-3xl p-4 glow-card bg-card/80 border border-border/60">
             <div className="flex items-center justify-between mb-3">
               <div>
-                <h3 className="font-bold">{meta.nameZh}</h3>
-                <p className="text-[11px] text-muted-foreground">
-                  {meta.muscles.join(' / ')} · {meta.equipment}
-                </p>
+                <h3 className="font-bold">{nameMap[ex.exerciseId] ?? ex.exerciseId}</h3>
               </div>
               <span className="text-[11px] text-purple-300 bg-purple-500/15 border border-purple-500/25 rounded-full px-2.5 py-1">
-                上次 {LAST_TIME[ex.exerciseId] ? `${LAST_TIME[ex.exerciseId].weight}×${LAST_TIME[ex.exerciseId].reps}` : '—'}
+                上次 {last?.length ? `${last[0].weight}×${last[0].reps}` : '—'}
               </span>
             </div>
             <div className="space-y-2">
@@ -175,6 +262,15 @@ export default function SessionPage({ routine, onFinish }) {
         );
       })}
 
+      {/* 训练中途追加动作（自由训练的入口，也是计划外加练） */}
+      <button onClick={() => setPicking(true)} className="w-full py-3 rounded-2xl border border-dashed border-purple-500/40 text-purple-300 text-sm flex items-center justify-center gap-1 active:scale-[0.98] transition">
+        <Plus size={14} /> 添加动作
+      </button>
+      {exercises.length === 0 && (
+        <p className="text-center text-xs text-muted-foreground">自由训练：点上方按钮从动作库添加第一个动作</p>
+      )}
+      {picking && <ExercisePicker onPick={addExercise} onClose={() => setPicking(false)} />}
+
       {/* 组间休息计时器悬浮条 */}
       {restLeft > 0 && (
         <div className="fixed bottom-24 left-1/2 -translate-x-1/2 w-[calc(100%-2.5rem)] max-w-[380px] z-40">
@@ -188,8 +284,37 @@ export default function SessionPage({ routine, onFinish }) {
                 </p>
               </div>
             </div>
-            <button onClick={() => setRestLeft(0)} className="w-8 h-8 rounded-lg bg-purple-500/20 border border-purple-400/30 flex items-center justify-center text-purple-200 active:scale-95 transition">
+            <button onClick={stopRest} className="w-8 h-8 rounded-lg bg-purple-500/20 border border-purple-400/30 flex items-center justify-center text-purple-200 active:scale-95 transition">
               <X size={15} />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* 退出确认：默认保留草稿（自动保存），也可主动放弃清除 */}
+      {quitOpen && (
+        <div className="fixed inset-0 z-[70] bg-black/60 backdrop-blur-sm flex items-end justify-center" onClick={() => setQuitOpen(false)}>
+          <div className="w-full max-w-[430px] m-3 rounded-3xl bg-card border border-border/60 p-5 space-y-4" onClick={(e) => e.stopPropagation()}>
+            <div>
+              <h3 className="font-bold">退出本次训练？</h3>
+              <p className="text-xs text-muted-foreground mt-1">已记录的组已自动保存为草稿，可在今日页随时继续</p>
+            </div>
+            <div className="flex gap-2.5">
+              <button onClick={() => setQuitOpen(false)} className="flex-1 py-3 rounded-2xl bg-background/60 border border-border/50 text-sm active:scale-[0.98] transition">
+                继续训练
+              </button>
+              <button onClick={onFinish} className="flex-1 py-3 rounded-2xl bg-gradient-to-r from-purple-500 to-violet-600 text-sm font-bold glow-primary active:scale-[0.98] transition">
+                保存并退出
+              </button>
+            </div>
+            <button
+              onClick={async () => {
+                await clearDraft();
+                onFinish();
+              }}
+              className="w-full py-1 text-xs text-red-400/90 active:scale-[0.98] transition"
+            >
+              放弃本次训练（清除草稿）
             </button>
           </div>
         </div>
