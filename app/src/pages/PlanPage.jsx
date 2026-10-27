@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useStore } from '@/store';
 import { exerciseById } from '@/data/exerciseLibrary';
 import { deleteRoutine, duplicateRoutine } from '@/db/repository';
+import { tryWrite } from '@/ui/toast';
 import PlanEditor from '@/components/PlanEditor';
 import { RefreshCcw, CalendarDays, Play, Plus, Pencil, Copy, Trash2 } from 'lucide-react';
 
@@ -88,7 +89,7 @@ export default function PlanPage({ onStart }) {
                 <button onClick={() => setEditing(r)} className="flex-1 py-1.5 rounded-xl bg-background/60 border border-border/50 text-xs text-muted-foreground flex items-center justify-center gap-1 active:scale-[0.98] transition">
                   <Pencil size={12} /> 编辑
                 </button>
-                <button onClick={() => duplicateRoutine(r.id)} className="flex-1 py-1.5 rounded-xl bg-background/60 border border-border/50 text-xs text-muted-foreground flex items-center justify-center gap-1 active:scale-[0.98] transition">
+                <button onClick={() => tryWrite('复制计划', () => duplicateRoutine(r.id))} className="flex-1 py-1.5 rounded-xl bg-background/60 border border-border/50 text-xs text-muted-foreground flex items-center justify-center gap-1 active:scale-[0.98] transition">
                   <Copy size={12} /> 复制
                 </button>
                 <button onClick={() => setConfirmDelete(r)} className="flex-1 py-1.5 rounded-xl bg-red-500/10 border border-red-500/30 text-xs text-red-400 flex items-center justify-center gap-1 active:scale-[0.98] transition">
@@ -121,8 +122,8 @@ export default function PlanPage({ onStart }) {
               </button>
               <button
                 onClick={async () => {
-                  await deleteRoutine(confirmDelete.id);
-                  setConfirmDelete(null);
+                  const ok = await tryWrite('删除计划', () => deleteRoutine(confirmDelete.id));
+                  if (ok) setConfirmDelete(null); // 失败时保留弹层，可重试
                 }}
                 className="flex-1 py-3 rounded-2xl bg-red-500/80 text-sm font-bold active:scale-[0.98] transition"
               >

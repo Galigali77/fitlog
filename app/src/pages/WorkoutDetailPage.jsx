@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { getWorkout, updateWorkout, deleteWorkout } from '@/db/repository';
+import { toast, describeDbError, tryWrite } from '@/ui/toast';
 import { workoutVolume } from '@/domain/volume';
 import { generateShareCard } from '@/components/ShareCard';
 import { downloadFile } from '@/db/backup';
@@ -49,16 +50,22 @@ export default function WorkoutDetailPage({ workoutId, onClose, onDeleted }) {
 
   const save = async () => {
     const cleaned = exercises.filter((ex) => ex.sets.length > 0);
-    await updateWorkout(workoutId, {
-      date,
-      title: workout.title,
-      note: workout.note,
-      exercises: cleaned.map((ex) => ({
-        exerciseId: ex.exerciseId,
-        nameZh: ex.nameZh,
-        sets: ex.sets.map((s) => ({ weight: s.weight || 0, reps: s.reps || 0, rpe: s.rpe, type: s.type })),
-      })),
-    });
+    try {
+      await updateWorkout(workoutId, {
+        date,
+        title: workout.title,
+        note: workout.note,
+        exercises: cleaned.map((ex) => ({
+          exerciseId: ex.exerciseId,
+          nameZh: ex.nameZh,
+          sets: ex.sets.map((s) => ({ weight: s.weight || 0, reps: s.reps || 0, rpe: s.rpe, type: s.type })),
+        })),
+      });
+    } catch (err) {
+      // 写库失败：留在详情页提示，修改内容不丢
+      toast(`保存修改失败：${describeDbError(err)}`);
+      return;
+    }
     onClose();
   };
 
@@ -169,7 +176,8 @@ export default function WorkoutDetailPage({ workoutId, onClose, onDeleted }) {
               </button>
               <button
                 onClick={async () => {
-                  await deleteWorkout(workoutId);
+                  const ok = await tryWrite('删除训练', () => deleteWorkout(workoutId));
+                  if (!ok) return; // 失败时保留弹层，可重试
                   setConfirmDelete(false);
                   (onDeleted ?? onClose)();
                 }}

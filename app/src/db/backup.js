@@ -5,7 +5,7 @@
  * - 导出 CSV：训练明细表（带 BOM，Excel 直接打开不乱码）。
  */
 import { db } from './schema';
-import { listWorkouts } from './repository';
+import { listWorkouts, todayStr } from './repository';
 
 const EXPORT_VERSION = 1;
 
@@ -81,7 +81,8 @@ export function downloadFile(filename, content, mime) {
 /** 导出完整备份 JSON 文件 */
 export async function exportJSON() {
   const backup = await buildBackup();
-  const date = new Date().toISOString().slice(0, 10);
+  // 用本地日期而非 toISOString()（UTC），避免凌晨导出的文件名写成昨天
+  const date = todayStr();
   downloadFile(`fitlog-backup-${date}.json`, JSON.stringify(backup), 'application/json');
 }
 
@@ -136,6 +137,7 @@ export async function exportCSV() {
   }
   // 字段统一加引号转义；开头加 BOM 让 Excel 按 UTF-8 解析中文
   const csv = '﻿' + rows.map((r) => r.map((c) => `"${String(c).replaceAll('"', '""')}"`).join(',')).join('\r\n');
-  const date = new Date().toISOString().slice(0, 10);
+  // 用本地日期而非 toISOString()（UTC），避免凌晨导出的文件名写成昨天
+  const date = todayStr();
   downloadFile(`fitlog-sets-${date}.csv`, csv, 'text/csv;charset=utf-8');
 }

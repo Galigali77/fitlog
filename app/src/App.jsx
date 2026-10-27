@@ -7,6 +7,7 @@ import LibraryPage from '@/pages/LibraryPage';
 import PlanPage from '@/pages/PlanPage';
 import WorkoutDetailPage from '@/pages/WorkoutDetailPage';
 import SettingsPage from '@/pages/SettingsPage';
+import ToastHost from '@/components/ToastHost';
 import { todayStr, loadDraft, clearDraft } from '@/db/repository';
 import { Dumbbell, BarChart3, Library, ClipboardList, X } from 'lucide-react';
 
@@ -192,6 +193,8 @@ export default function App() {
       <div className="min-h-screen w-full max-w-[430px] mx-auto relative border-x border-purple-500/10">
         <Shell />
       </div>
+      {/* 全局写操作失败提示（toast 事件总线的渲染端） */}
+      <ToastHost />
     </StoreProvider>
   );
 }

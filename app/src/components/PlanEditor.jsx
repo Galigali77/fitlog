@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { saveRoutine } from '@/db/repository';
+import { describeDbError } from '@/ui/toast';
 import { exerciseById } from '@/data/exerciseLibrary';
 import ExercisePicker from '@/components/ExercisePicker';
 import { ArrowLeft, GripVertical, Plus, Trash2 } from 'lucide-react';
@@ -65,18 +66,24 @@ export default function PlanEditor({ routine, onDone }) {
       setError('计划至少需要一个动作');
       return;
     }
-    await saveRoutine({
-      id: routine?.id,
-      name: name.trim(),
-      mode,
-      weekday: mode === 'weekly' ? weekday : null,
-      items: items.map((it) => ({
-        exerciseId: it.exerciseId,
-        targetSets: Math.max(1, it.targetSets || 1),
-        targetReps: String(it.targetReps || '8-12'),
-        increment: it.increment ?? null,
-      })),
-    });
+    try {
+      await saveRoutine({
+        id: routine?.id,
+        name: name.trim(),
+        mode,
+        weekday: mode === 'weekly' ? weekday : null,
+        items: items.map((it) => ({
+          exerciseId: it.exerciseId,
+          targetSets: Math.max(1, it.targetSets || 1),
+          targetReps: String(it.targetReps || '8-12'),
+          increment: it.increment ?? null,
+        })),
+      });
+    } catch (err) {
+      // 写库失败（配额满/隐私模式）：留在编辑页并用表单内错误区提示，不静默返回
+      setError(`保存失败：${describeDbError(err)}`);
+      return;
+    }
     onDone();
   };
 

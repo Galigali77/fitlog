@@ -37,7 +37,8 @@ export default function TodayPage({ onStart, onOpenSettings, draft = null, onDis
     const now = new Date();
     const monday = new Date(now);
     monday.setDate(now.getDate() - ((now.getDay() + 6) % 7));
-    const mondayStr = monday.toISOString().slice(0, 10);
+    // 必须按本地时区格式化：toISOString() 是 UTC，凌晨会把周一算成周日（时区错位 bug）
+    const mondayStr = `${monday.getFullYear()}-${String(monday.getMonth() + 1).padStart(2, '0')}-${String(monday.getDate()).padStart(2, '0')}`;
     return workouts.filter((w) => w.date >= mondayStr).length;
   })();
 

@@ -26,6 +26,17 @@ function groupBy(list, keyFn) {
 /** 组顺序还原：sets 以随机 uid 为主键，读取顺序不稳定，统一按写入时的 setIndex 排序（旧数据无该字段时保持原顺序） */
 const bySetIndex = (a, b) => (a.setIndex ?? 0) - (b.setIndex ?? 0);
 
+/**
+ * 按 workoutExerciseId 列表批量取组：走 workoutExerciseId 索引按需查询，避免 db.sets.toArray() 全表扫描。
+ * v3 复合索引 [workoutExerciseId+setIndex] 让每个动作的组天然按组序返回；再叠一次 bySetIndex 排序兜底（anyOf 合并多段结果）。
+ * @param {string[]} weIds
+ * @returns {Promise<object[]>}
+ */
+function setsFor(weIds) {
+  if (weIds.length === 0) return Promise.resolve([]);
+  return db.sets.where('workoutExerciseId').anyOf(weIds).toArray();
+}
+
 export const todayStr = () => {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -39,8 +50,9 @@ export const todayStr = () => {
  */
 export async function listWorkouts() {
   const workouts = await db.workouts.orderBy('date').reverse().toArray();
-  const allEx = await db.workoutExercises.toArray();
-  const allSets = await db.sets.toArray();
+  // 统计页需要全量三级组装，但子表一律走索引按需取，不做全表游标扫描
+  const allEx = await db.workoutExercises.where('workoutId').anyOf(workouts.map((w) => w.id)).toArray();
+  const allSets = await setsFor(allEx.map((e) => e.id));
   const setsByWe = groupBy(allSets, (s) => s.workoutExerciseId);
   const exByWorkout = groupBy(allEx, (e) => e.workoutId);
   return workouts.map((w) => ({
@@ -105,10 +117,10 @@ export async function saveWorkout(payload) {
 export async function exerciseHistory(exerciseId) {
   const wes = await db.workoutExercises.where('exerciseId').equals(exerciseId).toArray();
   if (wes.length === 0) return [];
-  const workouts = await db.workouts.toArray();
+  // 只取该动作涉及的训练与组（主键/索引按需查询），不再整表读入内存
+  const workouts = await db.workouts.where('id').anyOf(wes.map((w) => w.workoutId)).toArray();
   const dateById = new Map(workouts.map((w) => [w.id, w.date]));
-  const allSets = await db.sets.toArray();
-  const setsByWe = groupBy(allSets, (s) => s.workoutExerciseId);
+  const setsByWe = groupBy(await setsFor(wes.map((w) => w.id)), (s) => s.workoutExerciseId);
   return wes
     .map((we) => ({ date: dateById.get(we.workoutId) ?? '', sets: (setsByWe.get(we.id) ?? []).sort(bySetIndex) }))
     .filter((r) => r.date)
@@ -252,8 +264,8 @@ export async function getWorkout(workoutId) {
   const w = await db.workouts.get(workoutId);
   if (!w) return undefined;
   const exs = await db.workoutExercises.where('workoutId').equals(workoutId).toArray();
-  const allSets = await db.sets.toArray();
-  const setsByWe = groupBy(allSets, (s) => s.workoutExerciseId);
+  // 只取本次训练的组（索引按需查询），不整表扫描
+  const setsByWe = groupBy(await setsFor(exs.map((e) => e.id)), (s) => s.workoutExerciseId);
   return {
     ...w,
     exercises: exs

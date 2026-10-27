@@ -35,3 +35,27 @@ db.version(2).stores({
   // 全局单条草稿，id 固定 'current'；内容存记录页状态快照（exercises/nameMap/startedAt 等）
   sessionDrafts: 'id',
 });
+
+// v3：sets 加复合索引 [workoutExerciseId+setIndex]，
+// 按动作取组时走索引且天然按组序返回，不再全表扫描（阶段四性能加固）。
+// upgrade 给阶段一~三写入的旧组数据回填 setIndex（按当前主键序分配，顺序从此稳定）。
+db.version(3)
+  .stores({
+    sets: 'id, workoutExerciseId, [workoutExerciseId+setIndex]',
+  })
+  .upgrade(async (tx) => {
+    const sets = await tx.table('sets').toArray();
+    const groups = new Map(); // workoutExerciseId → 该动作下的组（主键序）
+    for (const s of sets) {
+      const arr = groups.get(s.workoutExerciseId);
+      if (arr) arr.push(s);
+      else groups.set(s.workoutExerciseId, [s]);
+    }
+    const patched = [];
+    for (const arr of groups.values()) {
+      arr.forEach((s, i) => {
+        if (s.setIndex === undefined) patched.push({ ...s, setIndex: i });
+      });
+    }
+    if (patched.length > 0) await tx.table('sets').bulkPut(patched);
+  });

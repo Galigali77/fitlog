@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '@/store';
 import { lastSetsOf, exerciseHistory, todayStr, loadDraft, saveDraft, clearDraft } from '@/db/repository';
+import { toast, describeDbError } from '@/ui/toast';
 import { exerciseById } from '@/data/exerciseLibrary';
 import { isNewPR, shouldNotifyPR } from '@/domain/pr';
 import { workoutVolume } from '@/domain/volume';
@@ -81,7 +82,9 @@ export default function SessionPage({ routine, date, onFinish }) {
     };
   }, [routine]);
 
-  // 自动保存草稿：组数据变化 500ms 后防抖落盘（含 done 状态），刷新/关闭标签页后可恢复
+  // 自动保存草稿：组数据变化 500ms 后防抖落盘（含 done 状态），刷新/关闭标签页后可恢复。
+  // 写失败（配额满/隐私模式）只提示一次，避免防抖触发反复弹 toast。
+  const draftErrShown = useRef(false);
   useEffect(() => {
     if (exercises === null) return undefined;
     const t = window.setTimeout(() => {
@@ -95,6 +98,10 @@ export default function SessionPage({ routine, date, onFinish }) {
         lastMap,
         historyMap,
         prs,
+      }).catch((err) => {
+        if (draftErrShown.current) return;
+        draftErrShown.current = true;
+        toast(`草稿自动保存失败：${describeDbError(err)}`);
       });
     }, 500);
     return () => window.clearTimeout(t);
@@ -155,20 +162,31 @@ export default function SessionPage({ routine, date, onFinish }) {
       .map((ex) => ({ ...ex, sets: ex.sets.filter((s) => s.done) }))
       .filter((ex) => ex.sets.length > 0);
     if (done.length > 0) {
-      await saveWorkout({
-        date: workoutDate,
-        title,
-        routineId: routine?.id ?? null, // 自由训练无关联计划（FR-LOG-08）
-        routineName: routine?.name ?? null,
-        durationMin: Math.max(1, Math.round((Date.now() - startedAt) / 60000)),
-        exercises: done.map((ex) => ({
-          exerciseId: ex.exerciseId,
-          nameZh: nameMap[ex.exerciseId] ?? ex.exerciseId,
-          sets: ex.sets.map(({ weight, reps }) => ({ weight, reps })),
-        })),
-      });
+      try {
+        await saveWorkout({
+          date: workoutDate,
+          title,
+          routineId: routine?.id ?? null, // 自由训练无关联计划（FR-LOG-08）
+          routineName: routine?.name ?? null,
+          durationMin: Math.max(1, Math.round((Date.now() - startedAt) / 60000)),
+          exercises: done.map((ex) => ({
+            exerciseId: ex.exerciseId,
+            nameZh: nameMap[ex.exerciseId] ?? ex.exerciseId,
+            sets: ex.sets.map(({ weight, reps }) => ({ weight, reps })),
+          })),
+        });
+      } catch (err) {
+        // 保存失败：不清草稿、不退出页面，数据仍可重试或去设置页导出
+        toast(`保存训练失败：${describeDbError(err)}。数据仍保留在本页草稿中，请处理后可重试`);
+        return;
+      }
     }
-    await clearDraft(); // 训练落盘（或空训练放弃）后清除草稿，避免残留
+    try {
+      await clearDraft(); // 训练落盘（或空训练放弃）后清除草稿，避免残留
+    } catch (err) {
+      // 落盘已成功但草稿没清掉：必须提示，否则今日页会出现「幽灵草稿」引导用户重复训练
+      toast(`训练已保存，但清除草稿失败：${describeDbError(err)}。若今日页出现「未完成的训练」卡片，请直接点「放弃」`);
+    }
     onFinish();
   };
 

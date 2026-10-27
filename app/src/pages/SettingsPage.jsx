@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { useStore } from '@/store';
 import { exportJSON, exportCSV, importJSON } from '@/db/backup';
-import { ArrowLeft, Download, Upload, FileSpreadsheet, Info, Smartphone, HardDrive } from 'lucide-react';
+import { describeDbError } from '@/ui/toast';
+import { ArrowLeft, Download, Upload, FileSpreadsheet, Info, Smartphone, HardDrive, ShieldCheck, ShieldAlert } from 'lucide-react';
 
 /** 数值设置行（定义在组件外，避免每次渲染重建类型导致输入框失焦） */
 function NumberRow({ label, hint, value, min, max, onChange }) {
@@ -33,7 +34,7 @@ function NumberRow({ label, hint, value, min, max, onChange }) {
  * @param {{ onClose: () => void }} props
  */
 export default function SettingsPage({ onClose }) {
-  const { settings, updateSetting } = useStore();
+  const { settings, updateSetting, storagePersisted } = useStore();
   const [message, setMessage] = useState('');
   const [storage, setStorage] = useState(null); // { usage, quota }
   const importRef = useRef(null);
@@ -53,7 +54,18 @@ export default function SettingsPage({ onClose }) {
       await importJSON(JSON.parse(text));
       setMessage('导入成功，数据已恢复');
     } catch (err) {
-      setMessage(`导入失败：${err.message}`);
+      // 校验失败用文件自带中文错误；写库失败（配额/隐私模式）翻译成人话
+      setMessage(`导入失败：${err instanceof SyntaxError ? '文件不是合法 JSON' : describeDbError(err)}`);
+    }
+  };
+
+  /** 导出（JSON/CSV 共用）：读库或触发下载失败时给出提示而非静默 */
+  const onExport = async (label, fn) => {
+    try {
+      await fn();
+      setMessage(`${label}已生成，开始下载`);
+    } catch (err) {
+      setMessage(`${label}失败：${describeDbError(err)}`);
     }
   };
 
@@ -99,10 +111,10 @@ export default function SettingsPage({ onClose }) {
         <h3 className="font-bold text-sm">数据管理</h3>
         <p className="text-[11px] text-muted-foreground">所有数据只存在本机浏览器，建议定期导出备份</p>
         <div className="grid grid-cols-1 gap-2.5">
-          <button onClick={exportJSON} className="py-3 rounded-2xl bg-purple-500/15 border border-purple-500/40 text-purple-200 text-sm font-medium flex items-center justify-center gap-2 active:scale-[0.98] transition">
+          <button onClick={() => onExport('完整备份', exportJSON)} className="py-3 rounded-2xl bg-purple-500/15 border border-purple-500/40 text-purple-200 text-sm font-medium flex items-center justify-center gap-2 active:scale-[0.98] transition">
             <Download size={15} /> 导出完整备份（JSON）
           </button>
-          <button onClick={exportCSV} className="py-3 rounded-2xl bg-background/60 border border-border/60 text-sm flex items-center justify-center gap-2 active:scale-[0.98] transition">
+          <button onClick={() => onExport('训练明细', exportCSV)} className="py-3 rounded-2xl bg-background/60 border border-border/60 text-sm flex items-center justify-center gap-2 active:scale-[0.98] transition">
             <FileSpreadsheet size={15} /> 导出训练明细（CSV，Excel 可用）
           </button>
           <button onClick={() => importRef.current?.click()} className="py-3 rounded-2xl bg-background/60 border border-border/60 text-sm flex items-center justify-center gap-2 active:scale-[0.98] transition">
@@ -126,6 +138,15 @@ export default function SettingsPage({ onClose }) {
             本地存储占用 {(storage.usage / 1024 / 1024).toFixed(1)} MB
             {storagePct !== null && ` / 约 ${storagePct}%`}
             {storagePct > 80 && '，建议导出备份后清理'}
+          </p>
+        )}
+        {/* 持久存储保护状态（navigator.storage.persist 申请结果，来自 store） */}
+        {storagePersisted !== null && (
+          <p className={`text-[11px] flex items-center gap-1.5 ${storagePersisted ? 'text-emerald-400/80' : 'text-amber-400/80'}`}>
+            {storagePersisted ? <ShieldCheck size={12} /> : <ShieldAlert size={12} />}
+            {storagePersisted
+              ? '持久存储已开启：浏览器不会自动清理你的训练数据'
+              : '持久存储未获授权：浏览器在存储紧张时可能清理数据，请定期导出备份'}
           </p>
         )}
       </section>

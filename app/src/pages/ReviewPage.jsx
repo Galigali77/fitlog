@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '@/store';
 import { todayStr, exerciseHistory } from '@/db/repository';
+import { describeDbError } from '@/ui/toast';
 import { exerciseById } from '@/data/exerciseLibrary';
 import { suggestOverload, parseTargetReps } from '@/domain/overload';
 import { Camera, Lightbulb, User, BellRing } from 'lucide-react';
@@ -112,7 +113,13 @@ function BodyRecord() {
       setError('身材记录需要至少正面和背面两张照片');
       return;
     }
-    await addBodyPhotos({ date: todayStr(), front: frontFile.current, back: backFile.current });
+    try {
+      await addBodyPhotos({ date: todayStr(), front: frontFile.current, back: backFile.current });
+    } catch (err) {
+      // 写库失败（照片体积大，最易触发配额）：提示并保留已选照片
+      setError(`保存失败：${describeDbError(err)}`);
+      return;
+    }
     frontFile.current = null;
     backFile.current = null;
     setFront(null);
