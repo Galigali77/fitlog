@@ -1,0 +1,1 @@
+(function(){"use strict";let t=null,e=0;self.onmessage=l=>{const{type:a}=l.data??{};a==="start"?(e=l.data.endAt,t&&clearInterval(t),t=setInterval(()=>{const n=Math.max(0,Math.ceil((e-Date.now())/1e3));self.postMessage({left:n}),n<=0&&(clearInterval(t),t=null)},250)):a==="stop"&&(t&&clearInterval(t),t=null)}})();
