@@ -65,8 +65,9 @@ export const clipUrl = (id) => `${import.meta.env.BASE_URL}exercises/clip/${id}.
 export function filterExercises(list, { keyword = '', muscle = null, equipment = '全部' } = {}) {
   const kw = keyword.trim().toLowerCase();
   return list.filter((e) => {
-    if (kw && !e.nameZh.toLowerCase().includes(kw) && !e.nameEn.toLowerCase().includes(kw)) return false;
-    if (muscle && !e.muscles.includes(muscle)) return false;
+    // 用户自建动作可能缺字段（nameEn/muscles 等），一律 ?? 兜底防止搜索白屏
+    if (kw && !(e.nameZh ?? '').toLowerCase().includes(kw) && !(e.nameEn ?? '').toLowerCase().includes(kw)) return false;
+    if (muscle && !(e.muscles ?? []).includes(muscle)) return false;
     if (equipment !== '全部' && e.equipment !== equipment) return false;
     return true;
   });
@@ -75,7 +76,7 @@ export function filterExercises(list, { keyword = '', muscle = null, equipment =
 /** 从动作列表提取有序肌群清单（按动作数降序，供左侧竖栏） */
 export function musclesOf(list) {
   const count = new Map();
-  list.forEach((e) => e.muscles.forEach((m) => count.set(m, (count.get(m) ?? 0) + 1)));
+  list.forEach((e) => (e.muscles ?? []).forEach((m) => count.set(m, (count.get(m) ?? 0) + 1)));
   return [...count.entries()].sort((a, b) => b[1] - a[1]).map(([m]) => m);
 }
 

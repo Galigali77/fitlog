@@ -25,6 +25,9 @@ describe('parseTargetReps 目标次数解析', () => {
     expect(parseTargetReps(undefined).top).toBe(0);
     expect(parseTargetReps('').top).toBe(0);
   });
+  it('反向区间 "10-8" 自动交换为 bottom<=top', () => {
+    expect(parseTargetReps('10-8')).toEqual({ bottom: 8, top: 10, isTime: false, isAmrap: false });
+  });
 });
 
 describe('topSet 取最好一组', () => {
@@ -106,6 +109,19 @@ describe('volume 容量与 e1RM', () => {
     expect(workoutVolume(exercises)).toBe(2520);
   });
 
+  it('workoutVolume 排除热身组（与 overload.topSet 口径一致）', () => {
+    const exercises = [
+      {
+        sets: [
+          { weight: 20, reps: 15, type: 'warmup' }, // 300，不计入
+          { weight: 60, reps: 10, type: 'work' },
+          { weight: 60, reps: 8 }, // 无 type 字段按正式组计
+        ],
+      },
+    ];
+    expect(workoutVolume(exercises)).toBe(1080);
+  });
+
   it('workoutVolume onlyDone 只统计已完成组', () => {
     const exercises = [{ sets: [{ weight: 100, reps: 10, done: true }, { weight: 100, reps: 8, done: false }] }];
     expect(workoutVolume(exercises, { onlyDone: true })).toBe(1000);
@@ -134,9 +150,15 @@ describe('pr 个人纪录检测', () => {
   it('未超历史 → 非 PR', () => {
     expect(isNewPR({ weight: 90, reps: 8 }, history)).toBe(false);
   });
-  it('空历史时任何有效组都是 PR，零容量组除外', () => {
-    expect(isNewPR({ weight: 50, reps: 5 }, [])).toBe(true);
-    expect(isNewPR({ weight: 0, reps: 10 }, [])).toBe(false);
+  it('空历史时不算 PR（首次训练缺乏比较基准，避免每组都报 PR）', () => {
+    expect(isNewPR({ weight: 50, reps: 5 }, [])).toBe(false);
+    expect(isNewPR({ weight: 100, reps: 10 }, null)).toBe(false);
+  });
+  it('超过历史最大重量/容量才算 PR', () => {
+    const h = [{ weight: 80, reps: 10 }, { weight: 100, reps: 5 }]; // 最大容量 800，最大重量 100
+    expect(isNewPR({ weight: 100, reps: 9 }, h)).toBe(true); // 容量 900 > 800
+    expect(isNewPR({ weight: 102.5, reps: 5 }, h)).toBe(true); // 重量创新高
+    expect(isNewPR({ weight: 80, reps: 10 }, h)).toBe(false); // 持平不算
   });
   it('同一动作一次训练内只提示一次', () => {
     expect(shouldNotifyPR('卧推', [])).toBe(true);

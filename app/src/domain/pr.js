@@ -16,8 +16,11 @@ import { setVolume } from './volume';
 export function isNewPR(set, historySets) {
   const v = setVolume(set);
   if (v <= 0) return false;
-  const bestVol = (historySets ?? []).reduce((m, s) => Math.max(m, setVolume(s)), 0);
-  const bestWeight = (historySets ?? []).reduce((m, s) => Math.max(m, s.weight || 0), 0);
+  const history = historySets ?? [];
+  // 没有任何历史有效组时不算 PR：首次训练缺乏比较基准，每组都报 PR 会淹没提示
+  if (history.length === 0) return false;
+  const bestVol = history.reduce((m, s) => Math.max(m, setVolume(s)), 0);
+  const bestWeight = history.reduce((m, s) => Math.max(m, s.weight || 0), 0);
   return v > bestVol || set.weight > bestWeight;
 }
 

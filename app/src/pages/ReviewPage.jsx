@@ -14,7 +14,8 @@ function Heatmap({ workouts }) {
   const today = new Date();
   const days = [];
   const start = new Date(today);
-  start.setDate(today.getDate() - 104 - ((today.getDay() + 6) % 7)); // 对齐到周一
+  // 98 = 14 周：起点对齐到 14 周前的周一，15 列网格的最后一列恰为本周（含今天），未来日期走 future 分支
+  start.setDate(today.getDate() - 98 - ((today.getDay() + 6) % 7));
   for (let i = 0; i < 105; i++) {
     const d = new Date(start);
     d.setDate(start.getDate() + i);
@@ -181,7 +182,10 @@ function BodyRecord() {
 function useOverloadSuggestions() {
   const { routines, settings } = useStore();
   const [suggestions, setSuggestions] = useState([]);
-  const routineKey = routines.map((r) => `${r.id}:${r.items.length}`).join('|');
+  // 依赖键需覆盖目标组数/次数：改了 targetSets/targetReps 后建议必须重算
+  const routineKey = routines
+    .map((r) => `${r.id}:${r.items.map((it) => `${it.exerciseId}@${it.targetSets}x${it.targetReps}`).join(',')}`)
+    .join('|');
 
   useEffect(() => {
     let alive = true;
@@ -201,7 +205,13 @@ function useOverloadSuggestions() {
           });
           if (s) {
             const meta = await exerciseById(it.exerciseId);
-            out.push({ ...s, exerciseName: meta?.nameZh ?? it.exerciseId, targetReps: it.targetReps });
+            out.push({
+              ...s,
+              routineId: r.id,
+              exerciseId: it.exerciseId,
+              exerciseName: meta?.nameZh ?? it.exerciseId,
+              targetReps: it.targetReps,
+            });
           }
         }
       }
@@ -230,7 +240,8 @@ export default function ReviewPage({ onOpenWorkout, onLogPast }) {
 
       {/* 超负荷建议 */}
       {suggestions.map((s) => (
-        <section key={s.exerciseName} className="rounded-3xl p-4 bg-gradient-to-br from-purple-600/25 to-transparent border border-purple-400/30 glow-card flex gap-3">
+        // 同一动作可能出现在多个计划里，key 用 routineId + exerciseId 组合避免撞车
+        <section key={`${s.routineId}:${s.exerciseId}`} className="rounded-3xl p-4 bg-gradient-to-br from-purple-600/25 to-transparent border border-purple-400/30 glow-card flex gap-3">
           <div className="w-10 h-10 rounded-2xl bg-purple-500/25 flex items-center justify-center text-purple-200 shrink-0">
             <Lightbulb size={18} />
           </div>

@@ -7,7 +7,7 @@
  * 消息协议：
  *   接收 { type: 'start', endAt }  开始/重置读秒
  *   接收 { type: 'stop' }          停止
- *   发送 { left }                  剩余秒数（到时后持续发 0 直至 stop）
+ *   发送 { left }                  剩余秒数（到 0 后停止，不再空转）
  */
 
 let timer = null; // setInterval 句柄
@@ -19,8 +19,14 @@ self.onmessage = (e) => {
     endAt = e.data.endAt;
     if (timer) clearInterval(timer);
     timer = setInterval(() => {
-      const left = Math.max(0, Math.round((endAt - Date.now()) / 1000));
+      // 必须用 ceil：round 会让 left 提前 250~500ms 归零，
+      // 主线程的到时提醒条件 Date.now() >= endAt 因此永不成立（震动/闪屏丢失）
+      const left = Math.max(0, Math.ceil((endAt - Date.now()) / 1000));
       self.postMessage({ left });
+      if (left <= 0) {
+        clearInterval(timer); // 到点即停，不再空转
+        timer = null;
+      }
     }, 250);
   } else if (type === 'stop') {
     if (timer) clearInterval(timer);

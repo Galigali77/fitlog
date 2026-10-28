@@ -36,8 +36,9 @@ db.version(2).stores({
   sessionDrafts: 'id',
 });
 
-// v3：sets 加复合索引 [workoutExerciseId+setIndex]，
-// 按动作取组时走索引且天然按组序返回，不再全表扫描（阶段四性能加固）。
+// v3：sets 加复合索引 [workoutExerciseId+setIndex]（阶段四性能加固）。
+// 注意：repository.setsFor 实际走的是 workoutExerciseId 单字段索引 + 内存显式 sort(bySetIndex)，
+// 复合索引的价值在于支持「按动作 + 组序」的范围查询与有序遍历，并不保证 anyOf 查询天然按组序返回。
 // upgrade 给阶段一~三写入的旧组数据回填 setIndex（按当前主键序分配，顺序从此稳定）。
 db.version(3)
   .stores({

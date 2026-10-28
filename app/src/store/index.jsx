@@ -73,18 +73,8 @@ export function StoreProvider({ children }) {
       bodyPhotos,
       settings,
       storagePersisted,
-      /** 保存一次完成的训练；按计划完成的轮换训练推进全局轮换游标（FR-PLAN-03） */
-      saveWorkout: async (payload) => {
-        const id = await repoSaveWorkout(payload);
-        if (payload.routineId) {
-          const r = routines.find((x) => x.id === payload.routineId);
-          if (r?.mode === 'rotation') {
-            const cursor = Number(settings.rotationCursor ?? 0);
-            await setSetting('rotationCursor', cursor + 1);
-          }
-        }
-        return id;
-      },
+      /** 保存一次完成的训练；轮换游标推进已收敛进 repository.saveWorkout 的同一事务（FR-PLAN-03） */
+      saveWorkout: (payload) => repoSaveWorkout(payload),
       /** 保存一组身材记录（Blob 直存 IndexedDB） */
       addBodyPhotos: repoAddBodyPhotos,
       /** 更新设置项 */

@@ -39,8 +39,8 @@ const FALLBACK_ROUTINES = [
  * @param {string} [base] 站点基础路径（Vite base，构建产物子路径部署时非 "/"）
  */
 export async function seedIfEmpty(base = '/') {
-  const count = await db.routines.count();
-  if (count > 0) return;
+  // 事务外先做快速检查，避免非空时白白发起 fetch
+  if ((await db.routines.count()) > 0) return;
   let routines = FALLBACK_ROUTINES;
   try {
     const res = await fetch(`${base}exercises/routinesSeed.json`);
@@ -49,9 +49,11 @@ export async function seedIfEmpty(base = '/') {
     // 离线或文件缺失时用回退种子，不阻塞启动
   }
   await db.transaction('rw', [db.routines, db.routineItems], async () => {
+    // 事务内二次检查：两标签页同时首启时，后进入者直接跳过（配合 put 幂等不报错）
+    if ((await db.routines.count()) > 0) return;
     for (const [order, r] of routines.entries()) {
-      await db.routines.add({ id: r.id, name: r.name, mode: r.mode, rotationPos: r.rotationPos ?? 0, order });
-      await db.routineItems.bulkAdd(
+      await db.routines.put({ id: r.id, name: r.name, mode: r.mode, rotationPos: r.rotationPos ?? 0, order });
+      await db.routineItems.bulkPut(
         (r.items ?? []).map((it, i) => ({
           id: `${r.id}-item-${i}`,
           routineId: r.id,

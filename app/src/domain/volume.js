@@ -11,14 +11,20 @@
 export const setVolume = (set) => (set.weight || 0) * (set.reps || 0);
 
 /**
- * 一次训练的总容量
- * @param {Array<{ sets: Array<{ weight: number, reps: number, done?: boolean }> }>} exercises
+ * 一次训练的总容量（热身组 type==='warmup' 不计入）
+ * @param {Array<{ sets: Array<{ weight: number, reps: number, done?: boolean, type?: string }> }>} exercises
  * @param {{ onlyDone?: boolean }} [opts] 只统计已完成组（记录页实时显示用）
  * @returns {number}
  */
 export function workoutVolume(exercises, { onlyDone = false } = {}) {
   return (exercises ?? []).reduce(
-    (sum, ex) => sum + (ex.sets ?? []).reduce((s, x) => s + (!onlyDone || x.done ? setVolume(x) : 0), 0),
+    // 热身组不计入容量（与 overload.topSet 的口径一致）
+    (sum, ex) =>
+      sum +
+      (ex.sets ?? []).reduce(
+        (s, x) => s + (x.type !== 'warmup' && (!onlyDone || x.done) ? setVolume(x) : 0),
+        0
+      ),
     0
   );
 }

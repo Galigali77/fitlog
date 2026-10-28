@@ -3,6 +3,7 @@ import { saveRoutine } from '@/db/repository';
 import { describeDbError } from '@/ui/toast';
 import { exerciseById } from '@/data/exerciseLibrary';
 import ExercisePicker from '@/components/ExercisePicker';
+import NumberField from '@/components/NumberField';
 import { ArrowLeft, GripVertical, Plus, Trash2 } from 'lucide-react';
 
 const WEEKDAYS = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
@@ -164,12 +165,11 @@ export default function PlanEditor({ routine, onDone }) {
             <div className="flex items-center gap-2 text-xs">
               <label className="flex items-center gap-1.5 flex-1">
                 <span className="text-muted-foreground shrink-0">组数</span>
-                <input
-                  type="number"
-                  inputMode="numeric"
+                <NumberField
+                  integer
                   min="1"
                   value={it.targetSets}
-                  onChange={(e) => updateItem(i, { targetSets: parseInt(e.target.value) || 1 })}
+                  onCommit={(n) => updateItem(i, { targetSets: Math.max(1, n ?? 1) })}
                   className="w-full text-center bg-background/60 border border-border/50 rounded-lg py-1.5 font-mono focus:outline-none focus:border-purple-400"
                 />
               </label>
@@ -184,12 +184,10 @@ export default function PlanEditor({ routine, onDone }) {
               </label>
               <label className="flex items-center gap-1.5 flex-1" title="渐进超负荷加重幅度（FR-PLAN-07），留空用全局设置">
                 <span className="text-muted-foreground shrink-0">加重</span>
-                <input
-                  type="number"
-                  inputMode="decimal"
+                <NumberField
                   step="0.5"
-                  value={it.increment ?? ''}
-                  onChange={(e) => updateItem(i, { increment: e.target.value === '' ? null : parseFloat(e.target.value) })}
+                  value={it.increment}
+                  onCommit={(n) => updateItem(i, { increment: n })}
                   placeholder="2.5"
                   className="w-full text-center bg-background/60 border border-border/50 rounded-lg py-1.5 font-mono focus:outline-none focus:border-purple-400"
                 />

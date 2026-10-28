@@ -27,8 +27,8 @@ function groupBy(list, keyFn) {
 const bySetIndex = (a, b) => (a.setIndex ?? 0) - (b.setIndex ?? 0);
 
 /**
- * 按 workoutExerciseId 列表批量取组：走 workoutExerciseId 索引按需查询，避免 db.sets.toArray() 全表扫描。
- * v3 复合索引 [workoutExerciseId+setIndex] 让每个动作的组天然按组序返回；再叠一次 bySetIndex 排序兜底（anyOf 合并多段结果）。
+ * 按 workoutExerciseId 列表批量取组：走 workoutExerciseId 单字段索引按需查询，避免 db.sets.toArray() 全表扫描。
+ * 组序不依赖返回顺序：调用方统一用 bySetIndex 显式排序（v3 复合索引供按组范围查询，不保证 anyOf 合并后的次序）。
  * @param {string[]} weIds
  * @returns {Promise<object[]>}
  */
@@ -50,6 +50,8 @@ export const todayStr = () => {
  */
 export async function listWorkouts() {
   const workouts = await db.workouts.orderBy('date').reverse().toArray();
+  // 同日多条训练次序不稳定：显式加二级排序键 createdAt（新的在前）
+  workouts.sort((a, b) => b.date.localeCompare(a.date) || (b.createdAt ?? 0) - (a.createdAt ?? 0));
   // 统计页需要全量三级组装，但子表一律走索引按需取，不做全表游标扫描
   const allEx = await db.workoutExercises.where('workoutId').anyOf(workouts.map((w) => w.id)).toArray();
   const allSets = await setsFor(allEx.map((e) => e.id));
@@ -73,7 +75,9 @@ export async function listWorkouts() {
  */
 export async function saveWorkout(payload) {
   const workoutId = uid('w');
-  await db.transaction('rw', [db.workouts, db.workoutExercises, db.sets], async () => {
+  // 事务含 settings/routines：轮换游标推进与训练落盘同生共死，
+  // 避免「训练已存、游标推进失败」导致调用方误判失败而重复保存
+  await db.transaction('rw', [db.workouts, db.workoutExercises, db.sets, db.routines, db.settings], async () => {
     await db.workouts.add({
       id: workoutId,
       date: payload.date,
@@ -104,6 +108,19 @@ export async function saveWorkout(payload) {
           type: s.type ?? 'work',
         }))
       );
+    }
+    // 轮换游标推进（FR-PLAN-03）：仅当练的是「今天」且正好是轮换指向的那个计划时才推进；
+    // 补记历史或练非指向计划不动游标
+    if (payload.routineId && payload.date === todayStr()) {
+      const rotations = (await db.routines.toArray())
+        .filter((r) => r.mode === 'rotation')
+        .sort((a, b) => (a.order ?? 999) - (b.order ?? 999));
+      if (rotations.length > 0) {
+        const cursor = Number((await db.settings.get('rotationCursor'))?.value ?? 0);
+        if (rotations[cursor % rotations.length].id === payload.routineId) {
+          await db.settings.put({ key: 'rotationCursor', value: cursor + 1 });
+        }
+      }
     }
   });
   return workoutId;
@@ -215,7 +232,8 @@ export async function saveRoutine(payload) {
       mode: payload.mode,
       weekday: payload.weekday ?? null, // weekly 模式绑定的星期（0=周日…6=周六）
       rotationPos: existing?.rotationPos ?? 0,
-      order: existing?.order ?? (await db.routines.count()),
+      // 新计划排到最后：用现有 max(order)+1 而非 count()（删除过计划后 count 会撞号）
+      order: existing?.order ?? (await db.routines.toArray()).reduce((m, r) => Math.max(m, r.order ?? -1), -1) + 1,
     });
     await db.routineItems.where('routineId').equals(routineId).delete();
     await db.routineItems.bulkAdd(
@@ -283,6 +301,9 @@ export async function getWorkout(workoutId) {
  */
 export async function updateWorkout(workoutId, payload) {
   await db.transaction('rw', [db.workouts, db.workoutExercises, db.sets], async () => {
+    // 先校验训练存在：不存在就抛错，避免对无效 id 重建出孤儿 workoutExercises/sets
+    const existing = await db.workouts.get(workoutId);
+    if (!existing) throw new Error(`训练不存在：${workoutId}`);
     await db.workouts.update(workoutId, {
       date: payload.date,
       title: payload.title,

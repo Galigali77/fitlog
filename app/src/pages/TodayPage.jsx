@@ -48,7 +48,8 @@ export default function TodayPage({ onStart, onOpenSettings, draft = null, onDis
   const draftRoutine = draft ? (routines.find((r) => r.id === draft.routineId) ?? null) : null;
   const draftDoneSets = (draft?.exercises?.reduce((n, ex) => n + (ex.sets?.filter((s) => s.done).length ?? 0), 0) ?? 0);
 
-  if (!ready || !routine) {
+  // 仅数据未就绪时显示加载中；ready 但没有任何计划时走下方的空态页（不再卡死）
+  if (!ready) {
     return <p className="px-5 pt-10 text-sm text-muted-foreground">数据加载中…</p>;
   }
 
@@ -99,33 +100,53 @@ export default function TodayPage({ onStart, onOpenSettings, draft = null, onDis
         </section>
       )}
 
-      {/* 今天练什么 */}
-      <section className="rounded-3xl p-5 glow-card bg-gradient-to-br from-[#2a1745] via-card to-card border border-purple-500/20 relative overflow-hidden">
-        <div className="absolute -top-10 -right-10 w-40 h-40 rounded-full bg-purple-600/25 blur-3xl" />
-        <div className="flex items-center gap-2 text-purple-300 text-xs tracking-widest">
-          <Flame size={14} />
-          {todayWeekly
-            ? `今天练什么 · 周${'日一二三四五六'[routine.weekday]}计划`
-            : `今天练什么 · 轮换 ${String.fromCharCode(65 + (cursor % Math.max(1, rotationRoutines.length)))}`}
-        </div>
-        <h2 className="text-xl font-bold mt-2">{routine.name}</h2>
-        <p className="text-sm text-muted-foreground mt-1">
-          {routine.items.length} 个动作 · 预计 {routine.items.reduce((s, it) => s + it.targetSets, 0) * 3} 分钟
-        </p>
-        <div className="flex flex-wrap gap-1.5 mt-3">
-          {routine.items.map((it) => (
-            <span key={it.id ?? it.exerciseId} className="text-[11px] px-2.5 py-1 rounded-full bg-purple-500/15 text-purple-200 border border-purple-500/20">
-              {nameMap[it.exerciseId] ?? '…'} ×{it.targetSets}
-            </span>
-          ))}
-        </div>
-        <button
-          onClick={() => onStart(routine)}
-          className="mt-5 w-full py-3.5 rounded-2xl bg-gradient-to-r from-purple-500 to-violet-600 font-bold text-[15px] glow-primary active:scale-[0.98] transition"
-        >
-          开始训练
-        </button>
-      </section>
+      {/* 今天练什么（有计划）/ 空态引导（一个计划都没有） */}
+      {routine ? (
+        <section className="rounded-3xl p-5 glow-card bg-gradient-to-br from-[#2a1745] via-card to-card border border-purple-500/20 relative overflow-hidden">
+          <div className="absolute -top-10 -right-10 w-40 h-40 rounded-full bg-purple-600/25 blur-3xl" />
+          <div className="flex items-center gap-2 text-purple-300 text-xs tracking-widest">
+            <Flame size={14} />
+            {todayWeekly
+              ? `今天练什么 · 周${'日一二三四五六'[routine.weekday]}计划`
+              : `今天练什么 · 轮换 ${String.fromCharCode(65 + (cursor % Math.max(1, rotationRoutines.length)))}`}
+          </div>
+          <h2 className="text-xl font-bold mt-2">{routine.name}</h2>
+          <p className="text-sm text-muted-foreground mt-1">
+            {routine.items.length} 个动作 · 预计 {routine.items.reduce((s, it) => s + it.targetSets, 0) * 3} 分钟
+          </p>
+          <div className="flex flex-wrap gap-1.5 mt-3">
+            {routine.items.map((it) => (
+              <span key={it.id ?? it.exerciseId} className="text-[11px] px-2.5 py-1 rounded-full bg-purple-500/15 text-purple-200 border border-purple-500/20">
+                {nameMap[it.exerciseId] ?? '…'} ×{it.targetSets}
+              </span>
+            ))}
+          </div>
+          <button
+            onClick={() => onStart(routine)}
+            className="mt-5 w-full py-3.5 rounded-2xl bg-gradient-to-r from-purple-500 to-violet-600 font-bold text-[15px] glow-primary active:scale-[0.98] transition"
+          >
+            开始训练
+          </button>
+        </section>
+      ) : (
+        <section className="rounded-3xl p-5 glow-card bg-gradient-to-br from-[#2a1745] via-card to-card border border-purple-500/20 relative overflow-hidden">
+          <div className="absolute -top-10 -right-10 w-40 h-40 rounded-full bg-purple-600/25 blur-3xl" />
+          <div className="flex items-center gap-2 text-purple-300 text-xs tracking-widest">
+            <Flame size={14} />
+            还没有训练计划
+          </div>
+          <h2 className="text-xl font-bold mt-2">从第一次训练开始</h2>
+          <p className="text-sm text-muted-foreground mt-1">
+            到底部「计划」页创建你的第一个计划，或直接开始一次自由训练
+          </p>
+          <button
+            onClick={() => onStart(null)}
+            className="mt-5 w-full py-3.5 rounded-2xl bg-gradient-to-r from-purple-500 to-violet-600 font-bold text-[15px] glow-primary active:scale-[0.98] transition"
+          >
+            开始自由训练
+          </button>
+        </section>
+      )}
 
       {/* 快捷入口 */}
       <div className="grid grid-cols-2 gap-3">

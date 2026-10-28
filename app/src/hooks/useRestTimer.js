@@ -53,7 +53,10 @@ export function useRestTimer(defaultSeconds = 90) {
   useEffect(() => {
     if (workerRef.current || left <= 0) return undefined;
     const tick = window.setInterval(() => {
-      setLeft(Math.max(0, Math.round((endAtRef.current - Date.now()) / 1000)));
+      // 与 Worker 一致用 ceil：left 首次归零即真正到点，保证上面的到时提醒一定执行
+      const l = Math.max(0, Math.ceil((endAtRef.current - Date.now()) / 1000));
+      setLeft(l);
+      if (l <= 0) window.clearInterval(tick); // 到点即停
     }, 250);
     return () => window.clearInterval(tick);
   }, [left > 0]); // eslint-disable-line react-hooks/exhaustive-deps -- 仅在启动/停止时重建

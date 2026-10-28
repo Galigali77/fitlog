@@ -17,7 +17,11 @@ export function parseTargetReps(targetReps) {
   if (s.includes('力竭')) return { bottom: 0, top: 0, isTime: false, isAmrap: true };
   const isTime = s.includes('秒');
   const m = s.match(/(\d+)\s*[-–~]\s*(\d+)/);
-  if (m) return { bottom: +m[1], top: +m[2], isTime, isAmrap: false };
+  if (m) {
+    // 反向区间防御（如 "10-8"）：交换保证 bottom <= top
+    const [a, b] = [+m[1], +m[2]];
+    return { bottom: Math.min(a, b), top: Math.max(a, b), isTime, isAmrap: false };
+  }
   const n = parseInt(s, 10);
   return { bottom: n || 0, top: n || 0, isTime, isAmrap: false };
 }

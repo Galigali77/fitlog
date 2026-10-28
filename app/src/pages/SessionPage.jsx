@@ -7,6 +7,7 @@ import { isNewPR, shouldNotifyPR } from '@/domain/pr';
 import { workoutVolume } from '@/domain/volume';
 import { useRestTimer } from '@/hooks/useRestTimer';
 import ExercisePicker from '@/components/ExercisePicker';
+import NumberField from '@/components/NumberField';
 import { ArrowLeft, Check, Plus, Timer, Trophy, X } from 'lucide-react';
 
 /**
@@ -28,7 +29,9 @@ export default function SessionPage({ routine, date, onFinish }) {
   const { left: restLeft, flash, start: startRest, stop: stopRest } = useRestTimer(settings.restSeconds);
 
   const title = routine?.name ?? '自由训练';
-  const workoutDate = date ?? todayStr();
+  // 训练日期挂载时惰性固定：补记优先用传入日期，否则取当天。
+  // 不能每次渲染重算 todayStr()，跨午夜训练会把日期漂移成第二天
+  const [workoutDate] = useState(() => date ?? todayStr());
 
   /** 加载某动作的元数据/上次组/历史，供预填与 PR 检测 */
   const loadExerciseMeta = async (exerciseId) => {
@@ -47,15 +50,16 @@ export default function SessionPage({ routine, date, onFinish }) {
   useEffect(() => {
     let alive = true;
     (async () => {
-      // 草稿恢复：仅当草稿属于当前计划（或同为自由训练）时恢复，避免串台
+      // 草稿恢复：仅当草稿属于当前计划（或同为自由训练）且日期一致时才恢复，
+      // 隔天的旧草稿直接忽略（不恢复组数据），避免跨日期串台
       const draft = await loadDraft();
-      if (alive && draft && (draft.routineId ?? null) === (routine?.id ?? null)) {
+      if (alive && draft && (draft.routineId ?? null) === (routine?.id ?? null) && draft.date === workoutDate) {
         setExercises(draft.exercises ?? []);
         setNameMap(draft.nameMap ?? {});
         setLastMap(draft.lastMap ?? {});
         setHistoryMap(draft.historyMap ?? {});
         setPrs(draft.prs ?? []);
-        if (draft.startedAt) setStartedAt(draft.startedAt); // 恢复开始时刻，训练时长不含中断
+        setStartedAt(Date.now()); // 中断时间不计入训练时长：以恢复时刻重新起算
         return;
       }
       if (!routine) {
@@ -80,14 +84,16 @@ export default function SessionPage({ routine, date, onFinish }) {
     return () => {
       alive = false;
     };
-  }, [routine]);
+  }, [routine, workoutDate]); // workoutDate 为惰性 state，挂载后不变，仅满足依赖完整性
 
   // 自动保存草稿：组数据变化 500ms 后防抖落盘（含 done 状态），刷新/关闭标签页后可恢复。
   // 写失败（配额满/隐私模式）只提示一次，避免防抖触发反复弹 toast。
   const draftErrShown = useRef(false);
+  const finishingRef = useRef(false); // 结束训练流程进行中：防抖回调不得再写草稿（防幽灵草稿）
   useEffect(() => {
     if (exercises === null) return undefined;
     const t = window.setTimeout(() => {
+      if (finishingRef.current) return; // finish() 已接管草稿生命周期，跳过本次防抖写入
       saveDraft({
         routineId: routine?.id ?? null,
         routineName: routine?.name ?? null,
@@ -107,21 +113,23 @@ export default function SessionPage({ routine, date, onFinish }) {
     return () => window.clearTimeout(t);
   }, [exercises, nameMap, lastMap, historyMap, prs, startedAt, workoutDate, routine]);
 
-  /** 训练中途从动作库追加动作（默认 3 组，按上次数据预填） */
+  /** 训练中途从动作库追加动作（默认 3 组，按上次数据预填）；已存在则给现有条目追加 3 组，避免重复 key */
   const addExercise = async (ex) => {
     setPicking(false);
     const { last } = await loadExerciseMeta(ex.id);
-    setExercises((prev) => [
-      ...(prev ?? []),
-      {
-        exerciseId: ex.id,
-        sets: Array.from({ length: 3 }, (_, i) => ({
-          weight: last?.[i]?.weight ?? last?.[0]?.weight ?? 0,
-          reps: last?.[i]?.reps ?? last?.[0]?.reps ?? 0,
-          done: false,
-        })),
-      },
-    ]);
+    const defaultSets = () =>
+      Array.from({ length: 3 }, (_, i) => ({
+        weight: last?.[i]?.weight ?? last?.[0]?.weight ?? 0,
+        reps: last?.[i]?.reps ?? last?.[0]?.reps ?? 0,
+        done: false,
+      }));
+    setExercises((prev) => {
+      const list = prev ?? [];
+      if (list.some((e) => e.exerciseId === ex.id)) {
+        return list.map((e) => (e.exerciseId === ex.id ? { ...e, sets: [...e.sets, ...defaultSets()] } : e));
+      }
+      return [...list, { exerciseId: ex.id, sets: defaultSets() }];
+    });
   };
 
   const updateSet = (ei, si, patch) => {
@@ -158,6 +166,7 @@ export default function SessionPage({ routine, date, onFinish }) {
   const doneSets = (exercises ?? []).reduce((n, ex) => n + ex.sets.filter((s) => s.done).length, 0);
 
   const finish = async () => {
+    finishingRef.current = true; // 立即封锁防抖保存，防 clearDraft 后回调写入幽灵草稿
     const done = (exercises ?? [])
       .map((ex) => ({ ...ex, sets: ex.sets.filter((s) => s.done) }))
       .filter((ex) => ex.sets.length > 0);
@@ -177,6 +186,7 @@ export default function SessionPage({ routine, date, onFinish }) {
         });
       } catch (err) {
         // 保存失败：不清草稿、不退出页面，数据仍可重试或去设置页导出
+        finishingRef.current = false; // 留在页面，恢复草稿自动保存
         toast(`保存训练失败：${describeDbError(err)}。数据仍保留在本页草稿中，请处理后可重试`);
         return;
       }
@@ -243,21 +253,18 @@ export default function SessionPage({ routine, date, onFinish }) {
                 >
                   <span className="w-6 text-center text-xs font-mono text-muted-foreground">{si + 1}</span>
                   <div className="flex-1 flex items-center justify-center gap-1.5">
-                    <input
-                      type="number"
-                      inputMode="decimal"
-                      value={set.weight || ''}
+                    <NumberField
+                      value={set.weight}
                       placeholder="kg"
-                      onChange={(e) => updateSet(ei, si, { weight: parseFloat(e.target.value) || 0, done: false })}
+                      onCommit={(n) => updateSet(ei, si, { weight: n ?? 0, done: false })}
                       className="w-16 text-center bg-transparent border border-border/60 rounded-lg py-1.5 text-sm font-mono focus:outline-none focus:border-purple-400"
                     />
                     <span className="text-muted-foreground text-xs">kg ×</span>
-                    <input
-                      type="number"
-                      inputMode="numeric"
-                      value={set.reps || ''}
+                    <NumberField
+                      integer
+                      value={set.reps}
                       placeholder="次"
-                      onChange={(e) => updateSet(ei, si, { reps: parseInt(e.target.value) || 0, done: false })}
+                      onCommit={(n) => updateSet(ei, si, { reps: n ?? 0, done: false })}
                       className="w-14 text-center bg-transparent border border-border/60 rounded-lg py-1.5 text-sm font-mono focus:outline-none focus:border-purple-400"
                     />
                     <span className="text-muted-foreground text-xs">次</span>

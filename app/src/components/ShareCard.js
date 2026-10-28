@@ -97,7 +97,10 @@ export async function generateShareCard(workout) {
   ctx.font = '26px system-ui, sans-serif';
   ctx.fillText('本地记录 · 数据不出设备', 72, H - 60);
 
-  return new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+  // toBlob 可能因 canvas 过大/内存不足回调 null：必须 reject，否则调用方拿到 null 无感知失败
+  return new Promise((resolve, reject) =>
+    canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error('canvas.toBlob 返回 null'))), 'image/png')
+  );
 }
 
 /** 圆角矩形路径 */

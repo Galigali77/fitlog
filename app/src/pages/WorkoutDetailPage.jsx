@@ -3,6 +3,7 @@ import { getWorkout, updateWorkout, deleteWorkout } from '@/db/repository';
 import { toast, describeDbError, tryWrite } from '@/ui/toast';
 import { workoutVolume } from '@/domain/volume';
 import { generateShareCard } from '@/components/ShareCard';
+import NumberField from '@/components/NumberField';
 import { downloadFile } from '@/db/backup';
 import { ArrowLeft, CalendarDays, Plus, Share2, Trash2 } from 'lucide-react';
 
@@ -49,6 +50,10 @@ export default function WorkoutDetailPage({ workoutId, onClose, onDeleted }) {
   };
 
   const save = async () => {
+    if (!date) {
+      toast('请选择训练日期');
+      return;
+    }
     const cleaned = exercises.filter((ex) => ex.sets.length > 0);
     try {
       await updateWorkout(workoutId, {
@@ -74,6 +79,9 @@ export default function WorkoutDetailPage({ workoutId, onClose, onDeleted }) {
     try {
       const blob = await generateShareCard({ ...workout, date, exercises });
       downloadFile(`fitlog-${date}.png`, blob, 'image/png');
+    } catch {
+      // canvas 导出失败（toBlob 返回 null 等）：明确提示，不静默
+      toast('分享图生成失败，请重试');
     } finally {
       setSharing(false);
     }
@@ -119,21 +127,18 @@ export default function WorkoutDetailPage({ workoutId, onClose, onDeleted }) {
               <div key={set.id ?? si} className="flex items-center gap-2 rounded-2xl px-3 py-2.5 bg-background/60 border border-border/50">
                 <span className="w-6 text-center text-xs font-mono text-muted-foreground">{si + 1}</span>
                 <div className="flex-1 flex items-center justify-center gap-1.5">
-                  <input
-                    type="number"
-                    inputMode="decimal"
-                    value={set.weight || ''}
+                  <NumberField
+                    value={set.weight}
                     placeholder="kg"
-                    onChange={(e) => updateSet(ei, si, { weight: parseFloat(e.target.value) || 0 })}
+                    onCommit={(n) => updateSet(ei, si, { weight: n ?? 0 })}
                     className="w-16 text-center bg-transparent border border-border/60 rounded-lg py-1.5 text-sm font-mono focus:outline-none focus:border-purple-400"
                   />
                   <span className="text-muted-foreground text-xs">kg ×</span>
-                  <input
-                    type="number"
-                    inputMode="numeric"
-                    value={set.reps || ''}
+                  <NumberField
+                    integer
+                    value={set.reps}
                     placeholder="次"
-                    onChange={(e) => updateSet(ei, si, { reps: parseInt(e.target.value) || 0 })}
+                    onCommit={(n) => updateSet(ei, si, { reps: n ?? 0 })}
                     className="w-14 text-center bg-transparent border border-border/60 rounded-lg py-1.5 text-sm font-mono focus:outline-none focus:border-purple-400"
                   />
                   <span className="text-muted-foreground text-xs">次</span>
